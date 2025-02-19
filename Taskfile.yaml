@@ -1,0 +1,175 @@
+version: '3'
+# =============================================================================
+#
+# ## Some useful links
+# 
+# - https://taskfile.dev/usage/
+# - https://taskfile.dev/api/#special-variables
+#
+# ## TODO
+#
+#   - Use {{.ROOT_DIR}} instead of `realpath ./...` ? To check.
+#   - Find a way to use a list of services you are working on.
+#     https://taskfile.dev/usage/#looping-over-values
+#   - Use https://taskfile.dev/usage/#ensuring-required-variables-are-set to ensure required variables are set.
+#
+# =============================================================================
+
+
+silent: true
+# If you need to debug taskfile, it would be usefull to set silent to false
+# silent: false
+
+# env:
+  # GIT_COMMIT:
+  #   sh: git log -n 1 --format=%h
+
+# Project environment variables
+# vars:
+env:
+  # Useful to ensure files produced in volumes over docker-compose exec
+  # commands are not "root privileged" files.
+  HOST_USR:
+    sh: whoami
+  HOST_UID:
+    sh: id -u
+  HOST_GID:
+    sh: id -g
+  HOST_ID: '{{.HOST_UID}}:{{.HOST_GID}}'
+
+  # PROJECT_NAME defaults to name of the current directory.
+  # should not be changed if you follow GitOps operating procedures.
+  PROJECT_NAME:
+    sh: basename "$PWD"
+
+  DOCKER_NETWORK: '{{.PROJECT_NAME}}.network'
+  
+  # CURRENT_DATE:
+  #   sh: date +"%Y%m%d"
+
+  # Project structure variables
+  ENV_ROOT_PATH:
+    sh: realpath ./env
+  # ENV_BASE_PATH: '{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}'
+  INFRA_BASE_PATH:
+    sh: realpath ./infra
+  SRC_BASE_PATH:
+    sh: realpath ./src
+  # SCRIPTS_BASE_PATH:
+  #   sh: realpath ./scripts
+  INFRA_DOCKER_PATH:
+    sh: realpath ./infra/docker
+
+
+dotenv: ['{{.ENV_ROOT_PATH}}/project.env']
+
+includes:
+  dust:
+    taskfile: ./Taskfile.dust.yaml
+
+tasks:
+
+  default:
+    summary: |
+      Available Task list.
+    cmds:
+      - task --list
+
+
+  ## 'Infrastructure' tasks
+  #########################
+
+  infra-up:
+    desc: Up services infrastructure.
+    cmds:
+      # - '{{.DOCKER_COMPOSE}} up -d --remove-orphans'
+      - '{{.DOCKER_COMPOSE}} up -d --remove-orphans --build'
+  
+  infra-stop:
+    desc: Stop services infrastructure.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} stop'
+  
+  infra-restart:
+    desc: Restart services infrastructure.
+    cmds:
+      - task: infra-stop
+      - task: infra-up
+
+  # TODO : keep current user rights to manage volumes 
+  infra-init:
+    desc: "`infra-up` puis initialise l'environnement projet."
+    summary: |
+      WARNING : nécessite que `host-init` ait été exécuté avant.
+    cmds:
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/pgsql_data"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/redis_data"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/elasticsearch_data"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/qdrant_data"
+      - task: infra-up
+      - task: dust:init
+
+  infra-clean:
+    desc: Réinitialise l'infrastructure et purge les données persistantes.
+    cmds:
+      - task: dust:clean
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/pgsql_data"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/redis_data"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/elasticsearch_data"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/qdrant_data"
+
+  infra-reset:
+    desc: Reset all services to fresh install.
+    cmds:
+      - task: infra-clean
+      - task: infra-init
+
+  infra-ps:
+    desc: List running services.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} ps'
+
+
+  ## 'Host' tasks
+  ################
+
+  host-clean:
+    desc: "WARNING : Clean host."
+    cmds:
+      # - defer: { task: infra-clean }
+      - defer: docker stop $(docker ps -a -q)
+      - defer: docker rm -v $(docker ps -a -q)
+      - defer: docker volume rm $(docker volume ls -q)
+      - defer: docker network rm $(docker network ls -q --filter type=custom)
+      - defer: docker rmi $(docker images -a -q) -f
+      - defer: docker builder prune -f
+      - defer: docker system prune -a -f
+
+  host-init:
+    desc: 'Initialize host environment (git submodules and setup initial configurations).'
+    cmds:
+      - git submodule update --init --recursive
+  #     - task: host-config-reset
+
+
+  ## Diagnostic
+  ##############
+
+  log-host.env:
+    desc: Log host environment.
+    summary: |
+      WARNING : this command may print some credentials. Use in dev only.
+    cmds:
+      - printenv | sort
+  
+  log-host.system:
+    desc: "Log host system info."
+    cmds:
+      - docker info
+      - df -h
+      - docker system df
+
+  log-infra:
+    desc: "Infra logs."
+    cmds:
+      - '{{.DOCKER_COMPOSE}} logs -f --tail=100'

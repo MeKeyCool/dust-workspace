@@ -1,0 +1,59 @@
+version: '3'
+
+
+tasks:
+
+  clean:
+    desc: Nettoie le build et les artefacts de compilation de `core`.
+    cmds:
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/core/target'
+
+  init:
+    desc: Init project.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+  
+  run:
+    desc: run Dust.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin core-api'
+
+  test:
+    desc: unit tests for Dust.
+    cmds:
+      - 'echo "TODO"'
+      # - '{{.DOCKER_COMPOSE}} exec -it isco npm run test:unit'
+    
+  shell-backend:
+    desc: Acess Dust docker container.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_backend bash'
+      # - '{{.DOCKER_COMPOSE}} exec -it isco zsh --login'
+
+  # build:
+  #   desc: Build hostable static HTML as SPA.
+  #   cmds:
+  #     - '{{.DOCKER_COMPOSE}} exec -i isco ...'
+
+
+  ## Diagnostic
+  ##############
+
+  log-host.env:
+    desc: Log host environment.
+    summary: |
+      WARNING : this command may print some credentials. Use in dev only.
+    cmds:
+      - printenv | sort
+  
+  log-host.system:
+    desc: "Log host system info."
+    cmds:
+      - docker info
+      - df -h
+      - docker system df
+
+  log-infra:
+    desc: "Infra logs."
+    cmds:
+      - '{{.DOCKER_COMPOSE}} logs -f --tail=100 dust'

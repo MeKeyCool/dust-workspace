@@ -1,0 +1,3 @@
+[submodule "src/dust"]
+	path = src/dust
+	url = git@github.com:dust-tt/dust.git
