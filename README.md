@@ -6,7 +6,7 @@ Je suis développeur informatique professionnel avec 15 ans d'expérience, ayant
 
 Je travaille sous Linux, actuellement sous Linux Mint, et j'apprécie les environnements qui respectent les logiques **Infrastructure As Code (IaC)**, y compris en local (docker, docker-compose, k3d, taskfile, shell).
 
-J'ai une forte affinité avec la philosophie et les valeurs de l'**open source**. Je me définis comme un "bidouilleur astucieux" : j’aime apprendre, résoudre des problèmes complexes, me casser la tête et comprendre en profondeur les systèmes sur lesquels je travaille.
+J'ai une forte affinité avec la philosophie et les valeurs du **logiciel libre**. Je me définis comme un "bidouilleur astucieux" : j’aime apprendre, résoudre des problèmes complexes, me casser la tête et comprendre en profondeur les systèmes sur lesquels je travaille.
 
 Je suis curieux des **avancées technologiques en IA** et souhaite m'investir sur un produit qui me motive dans cet écosystème.
 
@@ -24,7 +24,7 @@ Ainsi les seuls pré-requis pour utiliser ce projet sont :
 - ***Docker*** : https://docs.docker.com/engine/install/
 - ***Taskfile*** : https://taskfile.dev/installation/
 - ***k3d*** : https://k3d.io/stable/#releases
-- Et bien entendu ***un shell*** pour éxécuter tout ça.
+- Et bien entendu ***un shell*** pour exécuter tout ça.
 
 
 ### Architecture
@@ -54,7 +54,6 @@ task infra-init
 ```
 
 
-
 ## Contexte spécifique à Dust
 
 Je m'intéresse particulièrement à l'entreprise [Dust](https://dust.tt/) qui développe un produit open source autour de l'IA. Je suis débutant sur leur stack mais souhaite :
@@ -62,6 +61,7 @@ Je m'intéresse particulièrement à l'entreprise [Dust](https://dust.tt/) qui d
 - Explorer le code de leur produit phare : https://github.com/dust-tt/dust.
 - Potentiellement contribuer (bug fix, documentation, propositions de features, ...).
 - Candidater chez **Dust** si l’expérience est concluante et que je m’entends bien avec l’équipe.
+
 
 ## Avancement et Décisions Techniques
 

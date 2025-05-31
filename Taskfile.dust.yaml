@@ -1,43 +1,177 @@
 version: '3'
 
-
 tasks:
 
+  reset:
+    desc: Nettoie puis initialise tous les sous-projets.
+    deps:
+      - clean
+      - init
+
+
+  ## CLEAN
+  ##########
+
   clean:
-    desc: Nettoie le build et les artefacts de compilation de `core`.
+    desc: Nettoie tous les artefacts (Rust, Node, builds).
+    deps:
+      - clean-backend
+      - clean-sdk-js
+      - clean-sparkle
+      - clean-front
+      - clean-caches
+
+  clean-backend:
+    desc: Nettoie la compilation Rust.
     cmds:
       - 'rm -rf {{.SRC_BASE_PATH}}/dust/core/target'
 
+  clean-sdk-js:
+    desc: Nettoie le SDK JS.
+    cmds:
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/node_modules'
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/dist'
+
+  clean-sparkle:
+    desc: Nettoie la lib sparkle.
+    cmds:
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/node_modules'
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/dist'
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/.storybook-out'
+
+  clean-front:
+    desc: Nettoie le frontend Next.js.
+    cmds:
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/front/.next'
+      - 'rm -rf {{.SRC_BASE_PATH}}/dust/front/node_modules'
+
+  clean-caches:
+    desc: Supprime les caches globaux.
+    cmds:
+      - 'find {{.SRC_BASE_PATH}}/dust -type d -name ".turbo" -exec rm -rf {} +'
+
+  ## INIT
+  ##########
+
   init:
-    desc: Init project.
+    desc: Init global (backend + SDK JS + sparkle + frontend).
+    deps:
+      - init-backend
+      - init-sdk-js
+      - init-sparkle
+      - init-front
+
+  init-backend:
+    desc: Compile les binaires Rust.
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo build'
-  
+
+  init-sdk-js:
+    desc: Installe les dépendances du SDK JS.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sdks/js && npm install"'
+
+  init-sparkle:
+    desc: Installe les dépendances de Sparkle.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sparkle && npm install"'
+
+  init-front:
+    desc: Installe les dépendances du frontend.
+    deps:
+      - init-sdk-js
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm install"'
+
+
+  ## BUILD
+  ##########
+
+  build:
+    desc: Build global (backend + SDK JS + Sparkle + Frontend).
+    deps:
+      - build-backend
+      - build-sdk-js
+      - build-sparkle
+      - build-front
+
+  build-backend:
+    desc: Build du backend Rust.
+    deps:
+      - init-backend
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+
+  build-sdk-js:
+    desc: Build SDK JS (TypeScript, outputs dist/).
+    deps:
+      - init-sdk-js
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sdks/js && npm run build"'
+
+  build-sparkle:
+    desc: Build Sparkle (Design System).
+    deps:
+      - init-sparkle
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sparkle && npm run build"'
+
+  build-front:
+    desc: Build frontend Next.js (après SDK JS).
+    deps:
+      - init-front
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run build"'
+
+
+  ## RUN
+  #######
+
   run:
-    desc: run Dust.
+    desc: Lance l’API backend de Dust.
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin core-api'
 
-  test:
-    desc: unit tests for Dust.
+  run-front:
+    desc: Run frontend (Next.js).
     cmds:
-      - 'echo "TODO"'
-      # - '{{.DOCKER_COMPOSE}} exec -it isco npm run test:unit'
-    
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run dev"'
+
+  start-front:
+    desc: Serve build frontend.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run start"'
+
+
+  ## SHELLS
+  ###########
+
   shell-backend:
-    desc: Acess Dust docker container.
+    desc: Shell dans le conteneur backend.
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend bash'
-      # - '{{.DOCKER_COMPOSE}} exec -it isco zsh --login'
 
-  # build:
-  #   desc: Build hostable static HTML as SPA.
+  shell-front:
+    desc: Shell dans le conteneur frontend.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh'
+
+  ## TEST
+  ########
+
+  # test:
+  #   desc: TODO tests unitaires.
   #   cmds:
-  #     - '{{.DOCKER_COMPOSE}} exec -i isco ...'
+  #     - 'echo "TODO"'
+
+  # test-front:
+  #   desc: Lance les tests du frontend dans l’environnement test.
+  #   cmds:
+  #     - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && NODE_ENV=test npx tsx admin/db.ts && npm run test:ci"'
 
 
-  ## Diagnostic
-  ##############
+  ## DIAGNOSTIC
+  ###############
 
   log-host.env:
     desc: Log host environment.
@@ -45,7 +179,7 @@ tasks:
       WARNING : this command may print some credentials. Use in dev only.
     cmds:
       - printenv | sort
-  
+
   log-host.system:
     desc: "Log host system info."
     cmds:
