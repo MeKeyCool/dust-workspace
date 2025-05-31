@@ -102,10 +102,10 @@ tasks:
     summary: |
       WARNING : nécessite que `host-init` ait été exécuté avant.
     cmds:
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/pgsql_data"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/redis_data"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/elasticsearch_data"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/qdrant_data"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
       - task: infra-up
       - task: dust:init
 
@@ -113,10 +113,10 @@ tasks:
     desc: Réinitialise l'infrastructure et purge les données persistantes.
     cmds:
       - task: dust:clean
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/pgsql_data"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/redis_data"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/elasticsearch_data"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/qdrant_data"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
 
   infra-reset:
     desc: Reset all services to fresh install.
@@ -128,6 +128,56 @@ tasks:
     desc: List running services.
     cmds:
       - '{{.DOCKER_COMPOSE}} ps'
+
+
+  ## Env tasks
+  #############
+
+  env-config-edit:
+    desc: "Ouvre les fichiers d'environnement locaux dans l'éditeur."
+    cmds:
+      - $EDITOR {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/*.env
+
+  env-config-prepare:
+    desc: "Initialise la configuration de l'environnement courant à partir des templates `default` ou `local`."
+    cmds:
+      - |
+        echo -e "\nQuelle configuration veux-tu copier ? (default / local) [default] : "
+        read -r TEMPLATE_ENV
+        TEMPLATE_ENV=${TEMPLATE_ENV:-default}
+        TEMPLATE_PATH={{.INFRA_BASE_PATH}}/configuration/$TEMPLATE_ENV
+        echo -e "\nCopie de $TEMPLATE_PATH vers {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}..."
+        mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data
+        cp -r "$TEMPLATE_PATH"/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
+
+  env-backup:
+    desc: "Sauvegarde l'environnement actuel."
+    cmds:
+      - |
+        echo "Backup de l'environnement '{{.DEPLOY_ENV}}'..."
+        SRC={{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
+        DEST={{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}
+        if [ -d "$SRC" ]; then \
+          mkdir -p "$DEST" && \
+          cp -r "$SRC"/* "$DEST"; \
+        else \
+          echo "Aucun environnement à sauvegarder (dossier manquant) : $SRC"; \
+        fi
+
+  env-restore:
+    desc: "Restaure l'environnement depuis une sauvegarde."
+    cmds:
+      - |
+        echo "Restauration de l'environnement '{{.DEPLOY_ENV}}' depuis une sauvegarde..."
+        rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
+        mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
+        cp -r {{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
+
+  env-clean:
+    desc: "Nettoie les données (config, data, ...) de l'environnement courant."
+    cmds:
+      - echo "Suppression de {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}"
+      - rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
 
 
   ## 'Host' tasks

@@ -1,4 +1,3 @@
-
 networks:
   default:
     name: ${DOCKER_NETWORK}
@@ -10,28 +9,28 @@ volumes:
     driver_opts:
       o: bind
       type: none
-      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/pgsql_data
+      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/pgsql
 
   dust_redis_data:
     driver: local
     driver_opts:
       o: bind
       type: none
-      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/redis_data
+      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/redis
 
   dust_elasticsearch_data:
     driver: local
     driver_opts:
       o: bind
       type: none
-      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/elasticsearch_data
+      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/elasticsearch
 
   dust_qdrant_data:
     driver: local
     driver_opts:
       o: bind
       type: none
-      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/qdrant_data
+      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/qdrant
 
 services:
 
@@ -40,108 +39,8 @@ services:
     container_name: dust-front
     build:
       context: ./typescript
-      args:
-        COMMIT_HASH: dev-local
-        NEXT_PUBLIC_VIZ_URL: http://localhost:3000
-        NEXT_PUBLIC_DUST_CLIENT_FACING_URL: http://localhost:3000
-        NEXT_PUBLIC_GTM_TRACKING_ID: ""
-    environment:
-      # Basic environment
-      NODE_ENV: development
-      FRONT_DATABASE_URI: sqlite:dev.db
-      NEXT_PUBLIC_DUST_CLIENT_FACING_URL: http://localhost:3000
-
-      # Auth0 configuration (mocked for local)
-      AUTH0_TENANT_DOMAIN_URL: https://dummy.auth0.com
-      AUTH0_AUDIENCE_URI: https://dummy.auth0.com/api/v2/
-      DUST_API_AUDIENCE: dummy-audience
-
-      AUTH0_M2M_CLIENT_ID: dummy
-      AUTH0_M2M_CLIENT_SECRET: dummy
-      AUTH0_WEB_APP_CLIENT_ID: dummy
-      AUTH0_EXTENSION_CLIENT_ID: dummy
-      AUTH0_CLI_CLIENT_ID: dummy
-      AUTH0_CLAIM_NAMESPACE: https://dust.tt/claims
-
-      # Dust-specific secrets
-      DUST_INVITE_TOKEN_SECRET: dummy
-
-      # Sendgrid email templates (mocked)
-      SENDGRID_API_KEY: dummy
-      SENDGRID_INVITATION_EMAIL_TEMPLATE_ID: dummy
-      SENDGRID_GENERIC_EMAIL_TEMPLATE_ID: dummy
-
-      # Stripe (mock)
-      STRIPE_SECRET_KEY: dummy
-      STRIPE_SECRET_WEBHOOK_KEY: dummy
-
-      # Service account
-      SERVICE_ACCOUNT: dummy
-
-      # Customer.io (disabled)
-      CUSTOMERIO_SITE_ID: dummy
-      CUSTOMERIO_API_KEY: dummy
-      CUSTOMERIO_ENABLED: false
-
-      # Dust development system (local use only)
-      DUST_DEVELOPMENT_SYSTEM_API_KEY: dummy
-      DUST_DEVELOPMENT_WORKSPACE_ID: dummy
-
-      # Registry access
-      DUST_REGISTRY_SECRET: dummy
-
-      # Core API (usually backend)
-      CORE_API: http://localhost:3001
-      CORE_API_KEY: dummy
-
-      # Connectors API
-      CONNECTORS_API: http://localhost:3002
-      DUST_CONNECTORS_SECRET: dummy
-
-      # OAuth API
-      OAUTH_API: http://localhost:3003
-      OAUTH_API_KEY: dummy
-
-      # Apps & Space IDs (required)
-      DUST_APPS_WORKSPACE_ID: dummy
-      DUST_APPS_SPACE_ID: dummy
-      DUST_APPS_HELPER_DATASOURCE_VIEW_ID: dummy
-
-      # Optional for region resolving (leave empty or dummy)
-      REGION_RESOLVER_SECRET: dummy
-
-      # OAuth Clients
-      OAUTH_GITHUB_APP: dummy
-      OAUTH_GITHUB_APP_PLATFORM_ACTIONS: dummy
-      OAUTH_NOTION_CLIENT_ID: dummy
-      OAUTH_NOTION_PLATFORM_ACTIONS_CLIENT_ID: dummy
-      OAUTH_CONFLUENCE_CLIENT_ID: dummy
-      OAUTH_GOOGLE_DRIVE_CLIENT_ID: dummy
-      OAUTH_SLACK_CLIENT_ID: dummy
-      OAUTH_INTERCOM_CLIENT_ID: dummy
-      OAUTH_GONG_CLIENT_ID: dummy
-      OAUTH_MICROSOFT_CLIENT_ID: dummy
-      OAUTH_ZENDESK_CLIENT_ID: dummy
-      OAUTH_HUBSPOT_CLIENT_ID: dummy
-
-      # Text Extraction service (mock endpoint)
-      TEXT_EXTRACTION_URL: http://localhost:3004
-
-      # StatusPage integration (mock)
-      STATUS_PAGE_PROVIDERS_PAGE_ID: dummy
-      STATUS_PAGE_DUST_PAGE_ID: dummy
-      STATUS_PAGE_API_TOKEN: dummy
-
-      # Optional for dev profiling
-      DEBUG_PROFILER_SECRET: dummy
-
-      # Auth0
-      AUTH0_SECRET: dummydummy
-      AUTH0_BASE_URL: http://localhost:3000
-      AUTH0_ISSUER_BASE_URL: https://dummy.auth0.com
-      AUTH0_CLIENT_ID: dummy
-      AUTH0_CLIENT_SECRET: dummydummy
-
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.front.env
     ports:
       - "3000:3000"
     depends_on:
@@ -155,106 +54,12 @@ services:
     hostname: dust-backend
     container_name: dust-backend
     build:
-      context: ${INFRA_DOCKER_PATH}
-      dockerfile: ${INFRA_DOCKER_PATH}/rust.Dockerfile
+      context: ${INFRA_DOCKER_PATH}/rust
       args:
         HOST_UID: ${HOST_UID}
         HOST_GID: ${HOST_GID}
-    environment:
-      # TODO : create dedicated env file
-      # TODO : replace all dummy/changeme variables
-
-      # TODO : create a db for each service
-      CORE_DATABASE_URI: postgresql://dev:dev@dust-db:5432/dust
-      DATABASES_STORE_DATABASE_URI: postgresql://dev:dev@dust-db:5432/dust
-      OAUTH_DATABASE_URI: postgresql://dev:dev@dust-db:5432/dust
-      CORE_DATABASE_READ_REPLICA_URI: postgresql://dev:dev@dust-db:5432/dust
-
-      REDIS_URI: redis://dust-redis:6379
-
-      IS_LOCAL_DEV: "true"
-
-      # TODO : sync elastic search service
-      ELASTICSEARCH_URL: http://dust-elasticsearch:9200
-      ELASTICSEARCH_USERNAME: elastic
-      ELASTICSEARCH_PASSWORD: changeme
-
-      DUST_REGION: local
-
-      CORE_API: http://localhost:3001
-      CORE_API_KEY: dummy
-
-      API_KEYS: dummy
-      DISABLE_API_KEY_CHECK: "true"
-
-      BROWSERLESS_API_KEY: dummy
-
-      DUST_FRONT_API: http://localhost:3000
-      DUST_REGISTRY_SECRET: dummy
-
-      DUST_UPSERT_QUEUE_BUCKET: dummy
-
-      PROXY_HOST: proxy.local
-      PROXY_PORT: "3128"
-      PROXY_USER_NAME: user
-      PROXY_USER_PASSWORD: password
-
-      DUST_DATA_SOURCES_BUCKET: dummy
-
-      OAUTH_API: http://localhost:3002
-      OAUTH_API_KEY: dummy
-      OAUTH_ENCRYPTION_KEY: dummy
-
-      OAUTH_CONFLUENCE_CLIENT_ID: dummy
-      OAUTH_CONFLUENCE_CLIENT_SECRET: dummy
-      OAUTH_GITHUB_APP_CLIENT_ID: dummy
-      OAUTH_GITHUB_APP_PLATFORM_ACTIONS_CLIENT_ID: dummy
-      OAUTH_GITHUB_APP_PLATFORM_ACTIONS_PRIVATE_KEY_PATH: /dummy/path
-      OAUTH_GITHUB_APP_PRIVATE_KEY_PATH: /dummy/path
-      OAUTH_GONG_CLIENT_ID: dummy
-      OAUTH_GONG_CLIENT_SECRET: dummy
-      OAUTH_GOOGLE_DRIVE_CLIENT_ID: dummy
-      OAUTH_GOOGLE_DRIVE_CLIENT_SECRET: dummy
-      OAUTH_INTERCOM_CLIENT_ID: dummy
-      OAUTH_INTERCOM_CLIENT_SECRET: dummy
-      OAUTH_MICROSOFT_CLIENT_ID: dummy
-      OAUTH_MICROSOFT_CLIENT_SECRET: dummy
-      OAUTH_NOTION_CLIENT_ID: dummy
-      OAUTH_NOTION_CLIENT_SECRET: dummy
-      OAUTH_SALESFORCE_CLIENT_ID: dummy
-      OAUTH_SALESFORCE_CLIENT_SECRET: dummy
-      OAUTH_SLACK_CLIENT_ID: dummy
-      OAUTH_SLACK_CLIENT_SECRET: dummy
-      OAUTH_ZENDESK_CLIENT_ID: dummy
-      OAUTH_ZENDESK_CLIENT_SECRET: dummy
-
-      ANTHROPIC_API_KEY: dummy
-      AZURE_OPENAI_API_KEY: dummy
-      AZURE_OPENAI_ENDPOINT: https://dummy.azure.com
-      DEEPSEEK_API_KEY: dummy
-      FIREWORKS_API_KEY: dummy
-      CORE_DATA_SOURCES_MISTRAL_API_KEY: dummy
-      MISTRAL_API_KEY: dummy
-      CORE_DATA_SOURCES_OPENAI_API_KEY: dummy
-      OPENAI_API_KEY: dummy
-      OPENAI_EMBEDDINGS_AZURE_FALLBACK: "false"
-      TOGETHERAI_API_KEY: dummy
-
-      # TODO : sync qdrant service(s)
-      QDRANT_API_KEY: dummy
-      QDRANT_URL: http://dust-qdrant:6333
-      QDRANT_CLUSTER_0_URL: http://dust-qdrant:6333
-      QDRANT_CLUSTER_0_API_KEY: dummy
-
-      POINTS_PER_REQUEST: "100"
-
-      POD_IP: 127.0.0.1
-      POD_PORT: "3001"
-
-      DUST_DIR: /app/dust_data
-
-      NODE_ENV: development
-
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.backend.env
     volumes:
       - ${SRC_BASE_PATH}/dust/core:/app
     working_dir: /app
@@ -270,10 +75,8 @@ services:
     hostname: dust-db
     container_name: dust-db
     restart: always
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: dev
-      POSTGRES_DB: dust
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.db.env
     ports:
       - "5432:5432"
     volumes:
@@ -292,9 +95,8 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.5
     hostname: dust-elasticsearch
     container_name: dust-elasticsearch
-    environment:
-      - discovery.type=single-node
-      - ELASTIC_PASSWORD=changeme
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.elasticsearch.env
     ports:
       - "9200:9200"
     volumes:
@@ -308,4 +110,5 @@ services:
       - "6333:6333"
     volumes:
       - dust_qdrant_data:/qdrant/storage
-
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.qdrant.env

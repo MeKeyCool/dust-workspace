@@ -127,10 +127,11 @@ tasks:
   ## RUN
   #######
 
-  run:
+  run-backend:
     desc: Lance l’API backend de Dust.
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin core-api'
+      # Add some comment to give backend address
 
   run-front:
     desc: Run frontend (Next.js).
