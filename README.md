@@ -1,98 +1,108 @@
 # Dust-Workspace
 
-## Présentation et motivations
+A custom local environment designed to develop and contribute to the [Dust](https://github.com/dust-tt/dust) open-source AI platform.
 
-Je suis développeur informatique professionnel avec 15 ans d'expérience, ayant travaillé dans de nombreuses entreprises et sur une large palette de langages (C++, PHP, TypeScript, Scala, ...).
+This workspace uses `docker-compose`, `Taskfile`, and `k3d` to provide a robust and reproducible development environment, with a clear separation between infrastructure services and application code.
 
-Je travaille sous Linux, actuellement sous Linux Mint, et j'apprécie les environnements qui respectent les logiques **Infrastructure As Code (IaC)**, y compris en local (docker, docker-compose, k3d, taskfile, shell).
+The goals of this project include:
 
-J'ai une forte affinité avec la philosophie et les valeurs du **logiciel libre**. Je me définis comme un "bidouilleur astucieux" : j’aime apprendre, résoudre des problèmes complexes, me casser la tête et comprendre en profondeur les systèmes sur lesquels je travaille.
-
-Je suis curieux des **avancées technologiques en IA** et souhaite m'investir sur un produit qui me motive dans cet écosystème.
-
-
-## Organisation du projet
-
-Je travaille avec [Taskfile](https://taskfile.dev/) pour mémoriser, documenter et versionner toutes les commandes utiles à l'installation et l'utilisation du projet.
-
-J'utilise massivement **Docker** pour ne rien avoir à installer sur ma machine et pour facilement relancer le projet depuis n'importe quelle machine depuis les sources.
+* Running Dust locally with ease
+* Understanding its architecture in depth
+* Exploring and contributing to the codebase (bugfixes, docs, features)
+* Preparing for potential collaboration or contributions to the Dust project
 
 
-### Pré-requies
+## Prerequisites
 
-Ainsi les seuls pré-requis pour utiliser ce projet sont :
-- ***Docker*** : https://docs.docker.com/engine/install/
-- ***Taskfile*** : https://taskfile.dev/installation/
-- ***k3d*** : https://k3d.io/stable/#releases
-- Et bien entendu ***un shell*** pour exécuter tout ça.
+To run this project locally, only the following tools are required:
 
-
-### Architecture
-
-- `env` : Stocke des données de configuration spécifiques et les volumes/données de state.
-  > À la racine du répertoire `env`, vous trouver la configuration du host (votre machine) avec le fichier `project.env`.
-  >
-  > Les autres fichiers/répertoires spécifiques à l'instance d'environnement seront dans `env/${DEPLOY_ENV}` (logs, cache, fichiers d'env, ...)
-
-- `infra` : Répertorie tous les fichiers de descriptions de l'infrastructure (Dockerfiles, docker-compoe, template de fichiers de configuration, ...)
-- `src` : stock les sources (avec des git submodules pour les projets externes comme Dust)
-
-Les `Taskfile` sont à la racine.
+- [Docker](https://docs.docker.com/engine/install/)
+- [Taskfile](https://taskfile.dev/installation/)
+- [k3d](https://k3d.io/stable/#releases)
 
 
-### Installation initiale en local
+## Project Structure
+
+```text
+.
+├── doc/                          # Project documentation (notes, references, etc.)
+├── env/                          # Environment config and state data
+│   ├── backup/                     # backups of env files or state
+│   ├── ${DEPLOY_ENV}/              # Local environment-specific data (logs, cache, volumes, etc.)
+│   ├── project.env                 # Main env file for host setup
+│   └── project.env.template        # Example template to create project.env
+├── infra/                        # Infrastructure configuration
+│   ├── configuration/              # Templated .env and config files
+│   │   ├── default/                  # Default versioned configuration (Replace 'TO_BE_REPLACED' values)
+│   │   └── local/                    # Local overrides or secrets (Default local version for easy install)
+│   └── docker/                     # Dockerfiles and docker-compose stacks
+│       ├── docker-compose.yaml       # Main docker-compose stack
+│       ├── elasticsearch/            # Elasticsearch service config
+│       ├── rust/                     # Dockerfile and setup for backend
+│       ├── typescript/               # Dockerfile for Dust frontend
+│       └── utils/                    # Shared utility scripts (shell, kubectl)
+├── src/                          # Application source code
+│   └── dust/                       # Dust repository as a Git submodule (https://github.com/dust-tt/dust)
+├── Taskfile.yaml                 # Main task runner configuration (setup, run, reset, etc.)
+├── Taskfile.dust.yaml            # Dust-specific task definitions (dev, db, etc.)
+
+
+## Initial Setup
 
 ```bash
+# Step 1: Copy and customize your local environment file
 cp env/project.env.template env/project.env
-```
-Mettre à jour les valeurs dans `env/project.env`
 
-Puis exécutez les commandes suivantes :
-```bash
+# Step 2: Run initial setup tasks
 task host-init
 task infra-init
 ```
 
----
-
-⚠️ Note : le script `init_dev_container.sh` présent dans le dépôt Dust n’est pas utilisé ici.
-
-Ce projet utilise un environnement Docker customisé avec `docker-compose` et `Taskfile`,
-qui initialise directement les bases PostgreSQL nécessaires (`dust_api`, `dust_front_test`, etc.).
-
-Le script `init_dev_container.sh` peut servir de référence mais ne doit pas être exécuté tel quel,
-car il ne correspond pas à notre architecture conteneurisée actuelle.
+> ⚠️ Note: The official `init_dev_container.sh` script from the Dust repository is **not** used here.
+>
+> This workspace uses its own Docker Compose and Taskfile setup, initializing both `dust_api` and `dust_front_test` PostgreSQL databases directly. The Dust script can be used as a reference but should **not be executed** as-is.
 
 
+## Configuration Guidelines
 
-## Contexte spécifique à Dust
-
-Je m'intéresse particulièrement à l'entreprise [Dust](https://dust.tt/) qui développe un produit open source autour de l'IA. Je suis débutant sur leur stack mais souhaite :
-- Tester **Dust** en local.
-- Explorer le code de leur produit phare : https://github.com/dust-tt/dust.
-- Potentiellement contribuer (bug fix, documentation, propositions de features, ...).
-- Candidater chez **Dust** si l’expérience est concluante et que je m’entends bien avec l’équipe.
+* All configuration values should be stored in `.env` files under `infra/configuration/<DEPLOY_ENV>/`.
+* The default configuration is under `default/`.
+* ⚠️ If you use DEPLOY_ENV=local, `local/` configuration will be used (highly insecure but easy to install and tests).
+* Environment variables are loaded explicitly by Docker Compose and the Taskfile to ensure reproducibility.
 
 
-## Avancement et Décisions Techniques
+## Architecture Principles
 
-Mon approche est progressive et pragmatique :
+* **Code & Infra Separation**: All infra logic is in `infra/`. No source code lives outside `src/`.
+* **Docker by Default**: Nothing is installed on the host beyond Docker & Taskfile. All tooling is containerized.
+* **Dual Database Support**: Separate databases are used for development and testing (`dust_api`, `dust_front_test`).
+* **Taskfile as Entry Point**: Every common operation (init, up, test, reset) is encoded as a Taskfile task.
 
-1. Installation et Stabilisation de Dust en local avec docker-compose :
-   - Objectif immédiat : **faire tourner Dust (backend + frontend)** avec **docker-compose** sur mon environnement local.
-   - Déploiement des services nécessaires : **Postgres**, **Redis**, **Qdrant**, **Elasticsearch**.
-   - Configuration des variables d’environnement et des volumes.
 
-2. Migration progressive vers k3d pour une infrastructure plus proche de la production :
-  - Mise en place d'un cluster k3d local.
-  - Déploiement des services de l’écosystème (Redis, Qdrant, Elasticsearch, ...) dans k3d.
-  - Conservation des outils et du code applicatif dans docker-compose pour le confort dev.
-  - Interopérabilité entre docker-compose et k3d via NodePorts ou partage de network Docker.
-  - Migration progressive des services vers **k3d** au fil des besoins.
+## Development Flow
 
-## Objectif Final
-- Disposer d'un **environnement hybride docker-compose + k3d** :
-  - **docker-compose** pour le confort dev sur le **backend** et le **frontend**.
-  - **k3d** pour les services d’infrastructure afin de se rapprocher de la production.
-- Connaître la stack de **Dust** en profondeur.
-- Être capable de **développer, tester et contribuer efficacement** sur Dust.
+1. **Run Dust (backend + frontend) locally with Docker Compose**
+
+2. **Infra dependencies (Postgres, Redis, Qdrant, Elasticsearch)**
+  * Third-party services are run in a local k3d cluster for production parity.
+  * Use NodePorts or Docker network bridges to connect Docker Compose apps to k3d services.
+
+  > Not yet implemented
+
+## Code Guidelines
+
+* Linting and formatting follow Dust conventions (via `eslint`, `prettier`, etc.).
+* English (code, documentation and comments) and no fancy emoji.
+
+
+## Testing & CI Compatibility
+
+* A dedicated test database (`dust_front_test`) is configured to avoid polluting development data.
+* Environment variables used for tests mimic the GitHub Actions setup:
+
+```yaml
+env:
+  FRONT_DATABASE_URI: "postgres://test:test@localhost:5433/front_test"
+  REDIS_CACHE_URI: "redis://localhost:5434"
+  NODE_ENV: test
+```
