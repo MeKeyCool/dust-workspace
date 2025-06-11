@@ -49,7 +49,6 @@ services:
     working_dir: /workspace/scripts
     volumes:
       - ./utils/scripts:/workspace/scripts:ro
-    entrypoint: ["bash"]
 
   dust_front:
     hostname: dust-front

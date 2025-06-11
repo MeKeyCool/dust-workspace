@@ -106,56 +106,83 @@ tasks:
   env-config-edit:
     desc: "Open local env config files in editor."
     cmds:
+      - '{{.EXEC_LOG}} ACTION "Opening local env config in $EDITOR"'
       - $EDITOR {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/*.env
+      - '{{.EXEC_LOG}} DONE "Local env config opened."'
 
   env-config-prepare:
     desc: "Initialize local environment configuration from default or local templates."
     cmds:
       - |
-        echo -e "\nWhich template to copy? (default / local) [default]: "
-        read -r TEMPLATE_ENV
-        TEMPLATE_ENV=${TEMPLATE_ENV:-default}
-        TEMPLATE_PATH={{.INFRA_BASE_PATH}}/configuration/$TEMPLATE_ENV
-        echo -e "\nCopying from $TEMPLATE_PATH to {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}..."
+        read -p "Which template to copy? (default / local / other) [default]: " val
+        TEMPLATE_ENV="${val:-default}"
+        TEMPLATE_PATH="{{.INFRA_BASE_PATH}}/configuration/${TEMPLATE_ENV}"
+
+        if [ ! -d "$TEMPLATE_PATH" ]; then
+          {{.EXEC_LOG}} ERROR "Template '$TEMPLATE_ENV' does not exist in 'configuration/'."
+          exit 1
+        fi
+
+        if [ "$TEMPLATE_ENV" = "backup" ]; then
+          {{.EXEC_LOG}} ERROR "'backup' is a reserved keyword and cannot be used as a template."
+          exit 1
+        fi
+
+        {{.EXEC_LOG}} ACTION "Copying environment template from '$TEMPLATE_PATH' to '{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/'"
         mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data
         cp -r "$TEMPLATE_PATH"/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
-        {{.EXEC_LOG}} DONE "Environment configuration prepared from $TEMPLATE_ENV template."
+
+        {{.EXEC_LOG}} DONE "Environment configuration prepared from '$TEMPLATE_ENV' template."
 
   env-backup:
     desc: "Backup the current environment state."
     cmds:
+      - '{{.EXEC_LOG}} ACTION "Starting backup of environment {{.DEPLOY_ENV}}"'
       - |
-        echo "Backing up environment '{{.DEPLOY_ENV}}'..."
-        SRC={{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
-        DEST={{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}
-        if [ -d "$SRC" ]; then \
-          mkdir -p "$DEST" && \
-          cp -r "$SRC"/* "$DEST" && \
-          {{.EXEC_LOG}} DONE "Backup completed." ; \
-        else \
-          {{.EXEC_LOG}} ERROR "No environment found to backup: $SRC" ; \
-        fi
+          SRC={{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
+          DEST={{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}
+          if [ -d "$SRC" ]; then \
+            if [ "$(ls -A $SRC)" ]; then \
+              mkdir -p "$DEST" && \
+              cp -r "$SRC"/* "$DEST" && \
+              {{.EXEC_LOG}} DONE "Backup completed at $DEST." ; \
+            else \
+              {{.EXEC_LOG}} NOTICE "Environment folder is empty, no files to backup." ; \
+            fi \
+          else \
+            {{.EXEC_LOG}} ERROR "No environment found to backup: $SRC" ; \
+          fi
 
   env-restore:
     desc: "Restore environment from backup."
     cmds:
       - |
-        echo "Restoring environment '{{.DEPLOY_ENV}}' from backup..."
+        {{.EXEC_LOG}} ACTION "Restoring environment '{{.DEPLOY_ENV}}' from backup..."
         rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
         mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
         cp -r {{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
         {{.EXEC_LOG}} DONE "Environment restored from backup."
 
   env-clean:
-    desc: "Delete current environment data and config."
+    desc: "Delete current environment data and config, excluding backup, .gitignore, and project.*"
     cmds:
-      - echo "Deleting {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}"
-      - rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
-      - '{{.EXEC_LOG}} DONE "Environment folder removed."'
+      # Step 1: Call the env-backup task to create a backup if necessary
+      - task: env-backup
+
+      # Step 2: Delete all files and directories except for backup, .gitignore, and project.*
+      - '{{.EXEC_LOG}} ACTION "Deleting environment folder {{.ENV_ROOT_PATH}} except for backup, .gitignore, and project.*"'
+      - "find {{.ENV_ROOT_PATH}} -mindepth 1 \
+          ! -path '{{.ENV_ROOT_PATH}}/backup/*' \
+          ! -name 'backup' \
+          ! -name '.gitignore' \
+          ! -name 'project.*' \
+          -exec rm -rf {} +"  # Remove contents except for backup, .gitignore, and project.*
+
+      - '{{.EXEC_LOG}} DONE "Environment folder cleaned, excluding backup, .gitignore, and project.*."'
 
 
   ## Host
-  #########################
+  ########
 
   host-clean:
     desc: "WARNING: Clean host (containers, volumes, networks)."
@@ -185,7 +212,7 @@ tasks:
 
 
   ## Diagnostic
-  #########################
+  ##############
 
   log-host.env:
     desc: Log host environment.

@@ -1,5 +1,17 @@
 version: '3'
 
+vars:
+  DUST_DATABASES:
+    - dust
+    - dust_test
+    - dust_api
+    - dust_databases_store
+    - dust_front
+    - dust_front_test
+    - dust_connectors
+    - dust_connectors_test
+    - dust_oauth
+
 tasks:
 
   reset:
@@ -7,7 +19,6 @@ tasks:
     deps:
       - clean
       - init
-
 
   ## CLEAN
   ##########
@@ -73,27 +84,14 @@ tasks:
 
   clean-databases:
     desc: Drop all PostgreSQL databases and test user.
-    vars:
-      databases:
-        - dust
-        - dust_test
-        - dust_api
-        - dust_databases_store
-        - dust_front
-        - dust_front_test
-        - dust_connectors
-        - dust_connectors_test
-        - dust_oauth
     cmds:
-      - for: { var: databases }
+      - for: { var: database, list: "{{.DUST_DATABASES}}" }
         cmd: |
-          {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
-            echo "Dropping database {{.ITEM}} if exists...";
-            psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS {{.ITEM}};";
-          '
+          {{.EXEC_LOG}} ACTION "Dropping database {{.database}} if exists"
+          {{.DOCKER_COMPOSE}} exec -T dust_db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS {{.database}};"'
+      - '{{.EXEC_LOG}} ACTION "Dropping user \"test\" if exists"'
       - |
         {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
-          echo "Dropping user '\''test'\'' if exists...";
           USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
           if [ "$USER_EXISTS" = "1" ]; then
             psql -U "$POSTGRES_USER" -d postgres -c "DROP ROLE test;";
@@ -141,9 +139,9 @@ tasks:
       - init-databases
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+      - '{{.EXEC_LOG}} ACTION "Initializing dev database"'
       - |
-          echo "Initializing dev database..."
-          {{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin init_db
+        {{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin init_db
       - '{{.EXEC_LOG}} DONE "Backend built and database initialized."'
 
   init-sdk-js:
@@ -168,21 +166,10 @@ tasks:
 
   init-databases:
     desc: Create PostgreSQL databases and test user.
-    vars:
-      databases:
-        - dust
-        - dust_test
-        - dust_api
-        - dust_databases_store
-        - dust_front
-        - dust_front_test
-        - dust_connectors
-        - dust_connectors_test
-        - dust_oauth
     cmds:
+      - '{{.EXEC_LOG}} DONE "Checking user \"test\"..."'
       - |
         {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
-          echo "Checking user '\''test'\''...";
           USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
           if [ "$USER_EXISTS" != "1" ]; then
             echo "Creating user '\''test'\''...";
@@ -191,7 +178,7 @@ tasks:
             echo "User '\''test'\'' already exists.";
           fi
         '
-      - for: { var: databases }
+      - for: { var: DUST_DATABASES }
         cmd: |
           {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
             DB_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''{{.ITEM}}'\''");
@@ -208,8 +195,8 @@ tasks:
   init-qdrant:
     desc: Init Qdrant collections.
     cmds:
-      - cmd: |
-          {{.DOCKER_COMPOSE}} exec -T dust_backend script -q -c \
+      - |
+        {{.DOCKER_COMPOSE}} exec -T dust_backend script -q -c \
           "echo y | cargo run --bin qdrant_create_collection -- --cluster cluster-0 --provider openai --model text-embedding-3-large-1536" /dev/null
       - '{{.EXEC_LOG}} DONE "Qdrant collections initialized."'
 
@@ -238,7 +225,6 @@ tasks:
             fi
           '
       - '{{.EXEC_LOG}} DONE "Elasticsearch indices initialized."'
-
 
   ## BUILD
   ##########
@@ -301,7 +287,6 @@ tasks:
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run start"'
 
-
   ## SHELL
   ###########
 
@@ -325,7 +310,6 @@ tasks:
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_elasticsearch bash'
 
-
   ## TEST
   ########
 
@@ -340,15 +324,15 @@ tasks:
     deps:
       - init-databases
     cmds:
+      - '{{.EXEC_LOG}} ACTION "Running migrations..."'
       - |
-        echo "Running migrations..."
         {{.DOCKER_COMPOSE}} exec \
           -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
           -e OAUTH_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
           -e DATABASES_STORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
           -it dust_backend cargo run --bin init_db
+      - '{{.EXEC_LOG}} ACTION "Running tests..."'
       - |
-        echo "Running tests..."
         {{.DOCKER_COMPOSE}} exec \
           -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
           -e CORE_DATABASE_READ_REPLICA_URI=postgres://dev:dev@dust-db:5432/dust_test \
@@ -365,7 +349,7 @@ tasks:
     cmds:
       - |
         {{.DOCKER_COMPOSE}} exec -e NODE_ENV=test \
-          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/front_test \
+          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/dust_front_test \
           dust_front zsh -c "
             cd front && \
             npx tsx admin/db.ts && \
@@ -381,13 +365,12 @@ tasks:
     cmds:
       - |
         {{.DOCKER_COMPOSE}} exec -e NODE_ENV=test \
-          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/front_test \
+          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/dust_front_test \
           dust_front zsh -c "
             cd front && \
             npx tsx admin/db.ts && \
             npm run test
           "
-
 
   ## DIAGNOSTIC
   ###############

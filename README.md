@@ -102,7 +102,7 @@ task infra-init
 
 ```yaml
 env:
-  FRONT_DATABASE_URI: "postgres://test:test@localhost:5433/front_test"
+  FRONT_DATABASE_URI: "postgres://test:test@localhost:5433/dust_front_test"
   REDIS_CACHE_URI: "redis://localhost:5434"
   NODE_ENV: test
 ```
