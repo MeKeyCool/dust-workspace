@@ -53,6 +53,17 @@ task host-init
 task infra-init
 ```
 
+---
+
+⚠️ Note : le script `init_dev_container.sh` présent dans le dépôt Dust n’est pas utilisé ici.
+
+Ce projet utilise un environnement Docker customisé avec `docker-compose` et `Taskfile`,
+qui initialise directement les bases PostgreSQL nécessaires (`dust_api`, `dust_front_test`, etc.).
+
+Le script `init_dev_container.sh` peut servir de référence mais ne doit pas être exécuté tel quel,
+car il ne correspond pas à notre architecture conteneurisée actuelle.
+
+
 
 ## Contexte spécifique à Dust
 

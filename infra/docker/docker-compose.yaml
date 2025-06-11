@@ -32,6 +32,14 @@ volumes:
       type: none
       device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/qdrant
 
+  dust_backend_home:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${ENV_ROOT_PATH}/${DEPLOY_ENV}/data/backend-home
+
+
 services:
 
   dust_front:
@@ -41,6 +49,7 @@ services:
       context: ./typescript
     env_file:
       - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.front.env
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.redis.env
     ports:
       - "3000:3000"
     depends_on:
@@ -58,29 +67,40 @@ services:
       args:
         HOST_UID: ${HOST_UID}
         HOST_GID: ${HOST_GID}
-    env_file:
-      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.backend.env
+        HOST_USR: ${HOST_USR}
+    depends_on:
+      dust_db:
+        condition: service_healthy
+      dust_redis:
+        condition: service_started
+      dust_elasticsearch:
+        condition: service_healthy
+    working_dir: /app
     volumes:
       - ${SRC_BASE_PATH}/dust/core:/app
-    working_dir: /app
-    command: ["tail", "-f", "/dev/null"]
-    depends_on:
-      - dust_db
-      - dust_redis
+      - dust_backend_home:/home/${HOST_USR}/.cargo
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.backend.env
     ports:
       - "3001:3001"
+    command: ["tail", "-f", "/dev/null"]
 
   dust_db:
     image: postgres:14.1-alpine
     hostname: dust-db
     container_name: dust-db
     restart: always
-    env_file:
-      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.db.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
     ports:
       - "5432:5432"
     volumes:
       - dust_pgsql_data:/var/lib/postgresql/data
+    env_file:
+      - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.db.env
 
   dust_redis:
     image: redis:7
@@ -92,15 +112,40 @@ services:
       - dust_redis_data:/data
 
   dust_elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.5
+    build:
+      context: ${INFRA_DOCKER_PATH}/elasticsearch
     hostname: dust-elasticsearch
     container_name: dust-elasticsearch
     env_file:
       - ${ENV_ROOT_PATH}/${DEPLOY_ENV}/dust.elasticsearch.env
+    environment:
+      # TODO review default configuration.
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      # - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      # - action.auto_create_index=true
+      - action.auto_create_index=false
+      - xpack.license.self_generated.type=basic
+      - xpack.ml.use_auto_machine_memory_percent=true
+      - ELASTIC_PASSWORD
     ports:
       - "9200:9200"
     volumes:
       - dust_elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "sh -c 'curl -u elastic:$${ELASTIC_PASSWORD} -s http://localhost:9200/_cluster/health | grep -q \"\\\"status\\\":\\\"green\\\"\"'"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   dust_qdrant:
     image: qdrant/qdrant:v1.7.3

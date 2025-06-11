@@ -19,52 +19,106 @@ tasks:
       - clean-sdk-js
       - clean-sparkle
       - clean-front
+      - clean-databases
       - clean-caches
 
   clean-backend:
     desc: Nettoie la compilation Rust.
     cmds:
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/core/target'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/core/target ] && rm -rf {{.SRC_BASE_PATH}}/dust/core/target || true'
 
   clean-sdk-js:
     desc: Nettoie le SDK JS.
     cmds:
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/node_modules'
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/dist'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/sdks/js/node_modules ] && rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/node_modules || true'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/sdks/js/dist ] && rm -rf {{.SRC_BASE_PATH}}/dust/sdks/js/dist || true'
 
   clean-sparkle:
     desc: Nettoie la lib sparkle.
     cmds:
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/node_modules'
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/dist'
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/.storybook-out'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/sparkle/node_modules ] && rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/node_modules || true'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/sparkle/dist ] && rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/dist || true'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/sparkle/.storybook-out ] && rm -rf {{.SRC_BASE_PATH}}/dust/sparkle/.storybook-out || true'
 
   clean-front:
     desc: Nettoie le frontend Next.js.
     cmds:
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/front/.next'
-      - 'rm -rf {{.SRC_BASE_PATH}}/dust/front/node_modules'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/front/.next ] && rm -rf {{.SRC_BASE_PATH}}/dust/front/.next || true'
+      - '[ -d {{.SRC_BASE_PATH}}/dust/front/node_modules ] && rm -rf {{.SRC_BASE_PATH}}/dust/front/node_modules || true'
+
+  clean-databases:
+    desc: Supprime toutes les bases PostgreSQL utilisées par Dust et l'utilisateur 'test'.
+    vars:
+      databases:
+        - dust
+        - dust_test
+        - dust_api
+        - dust_databases_store
+        - dust_front
+        - dust_front_test
+        - dust_connectors
+        - dust_connectors_test
+        - dust_oauth
+    cmds:
+      # Remove databases
+      - for: { var: databases }
+        cmd: |
+          {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
+            echo "Dropping database {{.ITEM}} if exists...";
+            psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS {{.ITEM}};";
+          '
+      # Remove 'test' user
+      - |
+        {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
+          echo "Dropping user '\''test'\'' if exists...";
+          USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
+          if [ "$USER_EXISTS" = "1" ]; then
+            psql -U "$POSTGRES_USER" -d postgres -c "DROP ROLE test;";
+            echo "User '\''test'\'' dropped.";
+          else
+            echo "User '\''test'\'' does not exist.";
+          fi
+        '
 
   clean-caches:
     desc: Supprime les caches globaux.
     cmds:
-      - 'find {{.SRC_BASE_PATH}}/dust -type d -name ".turbo" -exec rm -rf {} +'
+      - 'find {{.SRC_BASE_PATH}}/dust -type d -name ".turbo" -exec rm -rf {} + || true'
+      - 'find {{.SRC_BASE_PATH}}/dust -type d -name ".cache" -exec rm -rf {} + || true'
+      - 'find {{.SRC_BASE_PATH}}/dust -type d -name "coverage" -exec rm -rf {} + || true'
+
 
   ## INIT
   ##########
 
   init:
-    desc: Init global (backend + SDK JS + sparkle + frontend).
+    desc: Initializes all parts of the project (backend, SDK, Sparkle, frontend, databases, Qdrant, ES).
     deps:
       - init-backend
+      - init-infra
       - init-sdk-js
-      - init-sparkle
       - init-front
+      - init-sparkle
+
+  init-infra:
+    desc: Initializes PostgreSQL, Qdrant and Elasticsearch for development.
+    cmds:
+      - task: init-databases
+      - task: init-qdrant
+        ignore_error: true
+      - task: init-elasticsearch
+        ignore_error: true
 
   init-backend:
-    desc: Compile les binaires Rust.
+    desc: Builds Rust binaries and initializes backend PostgreSQL databases.
+    deps:
+      - init-databases
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+
+      - |
+          echo "Initializing development database (includes migrations) ..."
+          {{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin init_db
 
   init-sdk-js:
     desc: Installe les dépendances du SDK JS.
@@ -81,8 +135,89 @@ tasks:
     deps:
       - init-sdk-js
     cmds:
-      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm install"'
+      # --ignore-scripts is used to preserve install from critical 'prepare' script errors due to specific setup (hook git)  
+      - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm install --ignore-scripts"'
 
+  init-databases:
+    desc: Crée les bases PostgreSQL requises pour Dust si elles n'existent pas, ainsi que l'utilisateur 'test'.
+    vars:
+      databases:
+        - dust
+        - dust_test
+        - dust_api
+        - dust_databases_store
+        - dust_front
+        - dust_front_test
+        - dust_connectors
+        - dust_connectors_test
+        - dust_oauth
+    cmds:
+      # Create test user if needed
+      - |
+        {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
+          echo "Checking if user '\''test'\'' exists...";
+          USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
+          if [ "$USER_EXISTS" != "1" ]; then
+            echo "Creating user '\''test'\'' with password...";
+            psql -U "$POSTGRES_USER" -d postgres -c "CREATE USER test WITH PASSWORD '\''test'\'' CREATEDB;";
+          else
+            echo "User '\''test'\'' already exists.";
+          fi
+        '
+      # Create databases
+      - for: { var: databases }
+        cmd: |
+          {{.DOCKER_COMPOSE}} exec -T dust_db sh -c '
+            echo "Checking database {{.ITEM}}...";
+            DB_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''{{.ITEM}}'\''");
+            if [ "$DB_EXISTS" != "1" ]; then
+              echo "Creating database '\''{{.ITEM}}'\''...";
+              psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \"{{.ITEM}}\" OWNER test;";
+            else
+              echo "Database '\''{{.ITEM}}'\'' already exists.";
+            fi
+          '
+      #
+      - |
+        {{.DOCKER_COMPOSE}} exec dust_backend cargo build --bin init_db
+
+  init-qdrant:
+    desc: Initializes Qdrant collections (embedding model).
+    cmds:
+      # Run the Qdrant collection creation command with automatic confirmation.
+      # The 'script' command is used to create a pseudo-TTY, which is required
+      # for interactive prompts (e.g., dialoguer::Confirm in Rust) to accept input.
+      # Without this, piping 'yes' directly would fail because stdin is not a real TTY.
+      - cmd: |
+          {{.DOCKER_COMPOSE}} exec -T dust_backend script -q -c \
+          "echo y | cargo run --bin qdrant_create_collection -- --cluster cluster-0 --provider openai --model text-embedding-3-large-1536" /dev/null
+
+  init-elasticsearch:
+    desc: Initializes Elasticsearch indices used for data sources.
+    vars:
+      INDICES:
+        - name: data_sources_nodes
+          version: 4
+        - name: data_sources
+          version: 1
+    cmds:
+      - for: { var: INDICES }
+        cmd: |
+          {{.DOCKER_COMPOSE}} exec -T dust_backend sh -c '
+            INDEX_NAME="{{.ITEM.name}}"
+            INDEX_VERSION={{.ITEM.version}}
+            FULL_INDEX="core.${INDEX_NAME}_${INDEX_VERSION}"
+            echo "Checking if index ${FULL_INDEX} exists..."
+            status=$(curl -s -o /dev/null -w "%{http_code}" -I "http://dust-elasticsearch:9200/${FULL_INDEX}")
+            echo "Status: $status"
+            if [ "$status" = "200" ]; then
+              echo "Index ${FULL_INDEX} already exists."
+            else
+              echo "Creating index ${FULL_INDEX}..."
+              cargo run --bin elasticsearch_create_index -- --index-name "$INDEX_NAME" --index-version "$INDEX_VERSION" --skip-confirmation
+              echo "Done creating index ${FULL_INDEX}."
+            fi
+          '
 
   ## BUILD
   ##########
@@ -131,7 +266,7 @@ tasks:
     desc: Lance l’API backend de Dust.
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin core-api'
-      # Add some comment to give backend address
+      # TODO : Add some comment to give backend address
 
   run-front:
     desc: Run frontend (Next.js).
@@ -157,18 +292,75 @@ tasks:
     cmds:
       - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh'
 
+  shell-database:
+    desc: Shell dans le conteneur postgres.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_db bash'
+
+  shell-elasticsearch:
+    desc: Shell dans le conteneur elasticsearch.
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec -it dust_elasticsearch bash'
+
   ## TEST
   ########
 
-  # test:
-  #   desc: TODO tests unitaires.
-  #   cmds:
-  #     - 'echo "TODO"'
+  test:
+    desc: Run all tests (backend, frontend, functional API).
+    deps:
+      - test-backend
+      - test-front
 
-  # test-front:
-  #   desc: Lance les tests du frontend dans l’environnement test.
-  #   cmds:
-  #     - '{{.DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && NODE_ENV=test npx tsx admin/db.ts && npm run test:ci"'
+  test-backend:
+    desc: Runs backend Rust unit tests (with dedicated PostgreSQL test DB).
+    deps:
+      - init-databases
+    cmds:
+      - |
+        echo "Running migrations on dust_test..."
+        {{.DOCKER_COMPOSE}} exec \
+          -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e OAUTH_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e DATABASES_STORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -it dust_backend cargo run --bin init_db
+      - |
+        echo "Running backend tests on dust_test..."
+        {{.DOCKER_COMPOSE}} exec \
+          -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e CORE_DATABASE_READ_REPLICA_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e OAUTH_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e DATABASES_STORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -it dust_backend cargo test
+
+  test-front:
+    desc: Runs frontend tests in test environment.
+    deps:
+      - build-sdk-js
+      - init-databases
+    cmds:
+      - |
+        {{.DOCKER_COMPOSE}} exec -e NODE_ENV=test \
+          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/front_test \
+          dust_front zsh -c "
+            cd front && \
+            npx tsx admin/db.ts && \
+            npm run test -- --watch=false
+          "
+  
+  test-front-watch:
+    desc: Runs frontend tests in test environment.
+    deps:
+      - build-sdk-js
+      - init-databases
+    cmds:
+      - |
+        {{.DOCKER_COMPOSE}} exec -e NODE_ENV=test \
+          -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/front_test \
+          dust_front zsh -c "
+            cd front && \
+            npx tsx admin/db.ts && \
+            npm run test
+          "
 
 
   ## DIAGNOSTIC

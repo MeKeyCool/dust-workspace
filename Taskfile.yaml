@@ -96,7 +96,6 @@ tasks:
       - task: infra-stop
       - task: infra-up
 
-  # TODO : keep current user rights to manage volumes 
   infra-init:
     desc: "`infra-up` puis initialise l'environnement projet."
     summary: |
@@ -106,9 +105,11 @@ tasks:
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
+      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
       - task: infra-up
       - task: dust:init
 
+  # TODO : enhance user rights to remove sudos 
   infra-clean:
     desc: Réinitialise l'infrastructure et purge les données persistantes.
     cmds:
@@ -117,6 +118,7 @@ tasks:
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
+      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
 
   infra-reset:
     desc: Reset all services to fresh install.
@@ -184,16 +186,26 @@ tasks:
   ################
 
   host-clean:
-    desc: "WARNING : Clean host."
+    desc: "WARNING : Clean host (containers, volumes, networks)."
     cmds:
-      # - defer: { task: infra-clean }
-      - defer: docker stop $(docker ps -a -q)
-      - defer: docker rm -v $(docker ps -a -q)
-      - defer: docker volume rm $(docker volume ls -q)
-      - defer: docker network rm $(docker network ls -q --filter type=custom)
-      - defer: docker rmi $(docker images -a -q) -f
-      - defer: docker builder prune -f
-      - defer: docker system prune -a -f
+      # - cmd: "{{ .EXEC_LOG }} ACTION 'Nettoyage : conteneurs, volumes et réseaux Docker'"
+      #   silent: true
+      - docker ps -aq | xargs -r docker stop
+      - docker ps -aq | xargs -r docker rm -v
+      - docker volume ls -q | xargs -r docker volume rm
+      - docker network ls -q --filter type=custom | xargs -r docker network rm
+    silent: false
+
+  host-reset:
+    desc: "WARNING : Reset host (containers, images, builders, system)."
+    cmds:
+      - task: host-clean
+      # - cmd: "{{ .EXEC_LOG }} ACTION 'Réinitialisation complète : suppression d/'images et nettoyage système Docker'"
+      #   silent: true
+      - docker images -aq | xargs -r docker rmi -f
+      - docker builder prune -f
+      - docker system prune -a -f
+    silent: false
 
   host-init:
     desc: 'Initialize host environment (git submodules and setup initial configurations).'

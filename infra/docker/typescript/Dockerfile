@@ -1,5 +1,6 @@
 # FROM node:24.0-bullseye
-FROM node:20.13-bullseye
+FROM node:22.16-bullseye
+# FROM node:20.13-bullseye
 
 # --- 1. Packages de base + outils dev ---
 RUN apt-get update -y && apt-get upgrade -y && \
