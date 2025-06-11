@@ -1,34 +1,8 @@
 version: '3'
-# =============================================================================
-#
-# ## Some useful links
-# 
-# - https://taskfile.dev/usage/
-# - https://taskfile.dev/api/#special-variables
-#
-# ## TODO
-#
-#   - Use {{.ROOT_DIR}} instead of `realpath ./...` ? To check.
-#   - Find a way to use a list of services you are working on.
-#     https://taskfile.dev/usage/#looping-over-values
-#   - Use https://taskfile.dev/usage/#ensuring-required-variables-are-set to ensure required variables are set.
-#
-# =============================================================================
-
 
 silent: true
-# If you need to debug taskfile, it would be usefull to set silent to false
-# silent: false
 
-# env:
-  # GIT_COMMIT:
-  #   sh: git log -n 1 --format=%h
-
-# Project environment variables
-# vars:
 env:
-  # Useful to ensure files produced in volumes over docker-compose exec
-  # commands are not "root privileged" files.
   HOST_USR:
     sh: whoami
   HOST_UID:
@@ -37,35 +11,28 @@ env:
     sh: id -g
   HOST_ID: '{{.HOST_UID}}:{{.HOST_GID}}'
 
-  # PROJECT_NAME defaults to name of the current directory.
-  # should not be changed if you follow GitOps operating procedures.
   PROJECT_NAME:
     sh: basename "$PWD"
 
   DOCKER_NETWORK: '{{.PROJECT_NAME}}.network'
-  
-  # CURRENT_DATE:
-  #   sh: date +"%Y%m%d"
 
-  # Project structure variables
   ENV_ROOT_PATH:
     sh: realpath ./env
-  # ENV_BASE_PATH: '{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}'
   INFRA_BASE_PATH:
     sh: realpath ./infra
   SRC_BASE_PATH:
     sh: realpath ./src
-  # SCRIPTS_BASE_PATH:
-  #   sh: realpath ./scripts
   INFRA_DOCKER_PATH:
     sh: realpath ./infra/docker
 
 
 dotenv: ['{{.ENV_ROOT_PATH}}/project.env']
 
+
 includes:
   dust:
     taskfile: ./Taskfile.dust.yaml
+
 
 tasks:
 
@@ -75,31 +42,31 @@ tasks:
     cmds:
       - task --list
 
-
-  ## 'Infrastructure' tasks
-  #########################
+  ## Infrastructure
+  ##################
 
   infra-up:
-    desc: Up services infrastructure.
+    desc: Start infrastructure services.
     cmds:
-      # - '{{.DOCKER_COMPOSE}} up -d --remove-orphans'
       - '{{.DOCKER_COMPOSE}} up -d --remove-orphans --build'
-  
+      - '{{.EXEC_LOG}} DONE "Infrastructure is up and running."'
+
   infra-stop:
-    desc: Stop services infrastructure.
+    desc: Stop infrastructure services.
     cmds:
       - '{{.DOCKER_COMPOSE}} stop'
-  
+      - '{{.EXEC_LOG}} DONE "Infrastructure has been stopped."'
+
   infra-restart:
-    desc: Restart services infrastructure.
+    desc: Restart infrastructure services.
     cmds:
       - task: infra-stop
       - task: infra-up
 
   infra-init:
-    desc: "`infra-up` puis initialise l'environnement projet."
+    desc: "Start services and initialize environment."
     summary: |
-      WARNING : nécessite que `host-init` ait été exécuté avant.
+      WARNING: requires `host-init` to have been run first.
     cmds:
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
@@ -108,10 +75,10 @@ tasks:
       - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
       - task: infra-up
       - task: dust:init
+      - '{{.EXEC_LOG}} DONE "Environment initialized."'
 
-  # TODO : enhance user rights to remove sudos 
   infra-clean:
-    desc: Réinitialise l'infrastructure et purge les données persistantes.
+    desc: Reset infrastructure and remove persistent data.
     cmds:
       - task: dust:clean
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
@@ -119,119 +86,122 @@ tasks:
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
       - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
+      - '{{.EXEC_LOG}} DONE "Persistent infrastructure data has been cleaned."'
 
   infra-reset:
-    desc: Reset all services to fresh install.
+    desc: Fully reset infrastructure to a clean install.
     cmds:
       - task: infra-clean
       - task: infra-init
 
   infra-ps:
-    desc: List running services.
+    desc: List running infrastructure services.
     cmds:
       - '{{.DOCKER_COMPOSE}} ps'
 
 
-  ## Env tasks
-  #############
+  ## Environment
+  ###############
 
   env-config-edit:
-    desc: "Ouvre les fichiers d'environnement locaux dans l'éditeur."
+    desc: "Open local env config files in editor."
     cmds:
       - $EDITOR {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/*.env
 
   env-config-prepare:
-    desc: "Initialise la configuration de l'environnement courant à partir des templates `default` ou `local`."
+    desc: "Initialize local environment configuration from default or local templates."
     cmds:
       - |
-        echo -e "\nQuelle configuration veux-tu copier ? (default / local) [default] : "
+        echo -e "\nWhich template to copy? (default / local) [default]: "
         read -r TEMPLATE_ENV
         TEMPLATE_ENV=${TEMPLATE_ENV:-default}
         TEMPLATE_PATH={{.INFRA_BASE_PATH}}/configuration/$TEMPLATE_ENV
-        echo -e "\nCopie de $TEMPLATE_PATH vers {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}..."
+        echo -e "\nCopying from $TEMPLATE_PATH to {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}..."
         mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data
         cp -r "$TEMPLATE_PATH"/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
+        {{.EXEC_LOG}} DONE "Environment configuration prepared from $TEMPLATE_ENV template."
 
   env-backup:
-    desc: "Sauvegarde l'environnement actuel."
+    desc: "Backup the current environment state."
     cmds:
       - |
-        echo "Backup de l'environnement '{{.DEPLOY_ENV}}'..."
+        echo "Backing up environment '{{.DEPLOY_ENV}}'..."
         SRC={{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
         DEST={{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}
         if [ -d "$SRC" ]; then \
           mkdir -p "$DEST" && \
-          cp -r "$SRC"/* "$DEST"; \
+          cp -r "$SRC"/* "$DEST" && \
+          {{.EXEC_LOG}} DONE "Backup completed." ; \
         else \
-          echo "Aucun environnement à sauvegarder (dossier manquant) : $SRC"; \
+          {{.EXEC_LOG}} ERROR "No environment found to backup: $SRC" ; \
         fi
 
   env-restore:
-    desc: "Restaure l'environnement depuis une sauvegarde."
+    desc: "Restore environment from backup."
     cmds:
       - |
-        echo "Restauration de l'environnement '{{.DEPLOY_ENV}}' depuis une sauvegarde..."
+        echo "Restoring environment '{{.DEPLOY_ENV}}' from backup..."
         rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
         mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
         cp -r {{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
+        {{.EXEC_LOG}} DONE "Environment restored from backup."
 
   env-clean:
-    desc: "Nettoie les données (config, data, ...) de l'environnement courant."
+    desc: "Delete current environment data and config."
     cmds:
-      - echo "Suppression de {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}"
+      - echo "Deleting {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}"
       - rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
+      - '{{.EXEC_LOG}} DONE "Environment folder removed."'
 
 
-  ## 'Host' tasks
-  ################
+  ## Host
+  #########################
 
   host-clean:
-    desc: "WARNING : Clean host (containers, volumes, networks)."
+    desc: "WARNING: Clean host (containers, volumes, networks)."
     cmds:
-      # - cmd: "{{ .EXEC_LOG }} ACTION 'Nettoyage : conteneurs, volumes et réseaux Docker'"
-      #   silent: true
       - docker ps -aq | xargs -r docker stop
       - docker ps -aq | xargs -r docker rm -v
       - docker volume ls -q | xargs -r docker volume rm
       - docker network ls -q --filter type=custom | xargs -r docker network rm
+      - '{{.EXEC_LOG}} DONE "Host cleaned (containers, volumes, networks)."'
     silent: false
 
   host-reset:
-    desc: "WARNING : Reset host (containers, images, builders, system)."
+    desc: "WARNING: Reset host (containers, images, builders, system)."
     cmds:
       - task: host-clean
-      # - cmd: "{{ .EXEC_LOG }} ACTION 'Réinitialisation complète : suppression d/'images et nettoyage système Docker'"
-      #   silent: true
       - docker images -aq | xargs -r docker rmi -f
       - docker builder prune -f
       - docker system prune -a -f
+      - '{{.EXEC_LOG}} DONE "Host reset complete."'
     silent: false
 
   host-init:
-    desc: 'Initialize host environment (git submodules and setup initial configurations).'
+    desc: "Initialize host setup (submodules, configs)."
     cmds:
       - git submodule update --init --recursive
-  #     - task: host-config-reset
+      - '{{.EXEC_LOG}} DONE "Git submodules initialized."'
 
 
   ## Diagnostic
-  ##############
+  #########################
 
   log-host.env:
     desc: Log host environment.
     summary: |
-      WARNING : this command may print some credentials. Use in dev only.
+      WARNING: May print sensitive variables. Use in development only.
     cmds:
       - printenv | sort
-  
+
   log-host.system:
-    desc: "Log host system info."
+    desc: Log system diagnostics.
     cmds:
       - docker info
       - df -h
       - docker system df
 
   log-infra:
-    desc: "Infra logs."
+    desc: Show infrastructure logs.
     cmds:
       - '{{.DOCKER_COMPOSE}} logs -f --tail=100'
