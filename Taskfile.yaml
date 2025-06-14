@@ -2,36 +2,90 @@ version: '3'
 
 silent: true
 
-env:
-  HOST_USR:
-    sh: whoami
-  HOST_UID:
-    sh: id -u
-  HOST_GID:
-    sh: id -g
-  HOST_ID: '{{.HOST_UID}}:{{.HOST_GID}}'
 
-  PROJECT_NAME:
+# 1. Load .env file before vars evaluation
+dotenv: ['env/project.env']
+
+
+# 2. Evaluate Taskfile internal vars
+vars:
+  DSW_PROJECT_NAME:
     sh: basename "$PWD"
+  
+  DSW_DOCKER_NETWORK:
+    sh: echo "{{.DSW_PROJECT_NAME}}.network"
+  DSW_DOCKER_GATEWAY_IP:
+    sh: ip -4 addr show docker0 | grep -Po 'inet \K[\d.]+' | head -n1
+  DSW_KUBE_CLUSTER_NAME:
+    sh: echo "{{.DSW_PROJECT_NAME}}-cluster"
+  DSW_INFRA_KUBECONFIG_PATH:
+    sh: echo "{{.DSW_ENV_PATH}}/data/kube/config"
 
-  DOCKER_NETWORK: '{{.PROJECT_NAME}}.network'
-
-  ENV_ROOT_PATH:
+  DSW_ENV_ROOT_PATH:
     sh: realpath ./env
-  INFRA_BASE_PATH:
-    sh: realpath ./infra
-  SRC_BASE_PATH:
+  DSW_ENV_PATH:
+    sh: echo "$(realpath ./env)/{{.DSW_DEPLOY_ENV}}"
+  
+  DSW_SRC_BASE_PATH:
     sh: realpath ./src
-  INFRA_DOCKER_PATH:
+  
+  DSW_INFRA_BASE_PATH:
+    sh: realpath ./infra
+  DSW_INFRA_DOCKER_PATH:
     sh: realpath ./infra/docker
+  DSW_INFRA_KUBE_PATH:
+    sh: realpath ./infra/kubernetes
+  
+  DSW_HOST_USR:
+    sh: whoami
+  DSW_HOST_UID:
+    sh: id -u
+  DSW_HOST_GID:
+    sh: id -g
+  DSW_HOST_ID:
+    sh: echo "$(id -u):$(id -g)"
+
+  DUST_DATABASES:
+    - dust
+    - dust_test
+    - dust_api
+    - dust_databases_store
+    - dust_front
+    - dust_front_test
+    - dust_connectors
+    - dust_connectors_test
+    - dust_oauth
 
 
-dotenv: ['{{.ENV_ROOT_PATH}}/project.env']
+# 3. Export vars to task env
+env:
+  DSW_PROJECT_NAME: '{{.DSW_PROJECT_NAME}}'
+
+  DSW_DOCKER_NETWORK: '{{.DSW_DOCKER_NETWORK}}'
+  DSW_DOCKER_GATEWAY_IP: '{{.DSW_DOCKER_GATEWAY_IP}}'
+  DSW_KUBE_CLUSTER_NAME: '{{.DSW_KUBE_CLUSTER_NAME}}'
+  DSW_INFRA_KUBECONFIG_PATH: '{{.DSW_INFRA_KUBECONFIG_PATH}}'
+
+  DSW_ENV_ROOT_PATH: '{{.DSW_ENV_ROOT_PATH}}'
+  DSW_ENV_PATH: '{{.DSW_ENV_PATH}}'
+  
+  DSW_SRC_BASE_PATH: '{{.DSW_SRC_BASE_PATH}}'
+  
+  DSW_INFRA_BASE_PATH: '{{.DSW_INFRA_BASE_PATH}}'
+  DSW_INFRA_DOCKER_PATH: '{{.DSW_INFRA_DOCKER_PATH}}'
+  DSW_INFRA_KUBE_PATH: '{{.DSW_INFRA_KUBE_PATH}}'
+  
+  DSW_HOST_USR: '{{.DSW_HOST_USR}}'
+  DSW_HOST_UID: '{{.DSW_HOST_UID}}'
+  DSW_HOST_GID: '{{.DSW_HOST_GID}}'
+  DSW_HOST_ID: '{{.DSW_HOST_ID}}'
 
 
 includes:
-  dust:
-    taskfile: ./Taskfile.dust.yaml
+  app:
+    taskfile: ./Taskfile.app.yaml
+  infra:
+    taskfile: ./Taskfile.infra.yaml
 
 
 tasks:
@@ -42,193 +96,331 @@ tasks:
     cmds:
       - task --list
 
-  ## Infrastructure
-  ##################
-
-  infra-up:
-    desc: Start infrastructure services.
-    cmds:
-      - '{{.DOCKER_COMPOSE}} up -d --remove-orphans --build'
-      - '{{.EXEC_LOG}} DONE "Infrastructure is up and running."'
-
-  infra-stop:
-    desc: Stop infrastructure services.
-    cmds:
-      - '{{.DOCKER_COMPOSE}} stop'
-      - '{{.EXEC_LOG}} DONE "Infrastructure has been stopped."'
-
-  infra-restart:
-    desc: Restart infrastructure services.
-    cmds:
-      - task: infra-stop
-      - task: infra-up
-
-  infra-init:
-    desc: "Start services and initialize environment."
-    summary: |
-      WARNING: requires `host-init` to have been run first.
-    cmds:
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
-      - mkdir -p "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
-      - task: infra-up
-      - task: dust:init
-      - '{{.EXEC_LOG}} DONE "Environment initialized."'
-
-  infra-clean:
-    desc: Reset infrastructure and remove persistent data.
-    cmds:
-      - task: dust:clean
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/pgsql"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/redis"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/elasticsearch"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/qdrant"
-      - sudo rm -rf "{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data/backend-home"
-      - '{{.EXEC_LOG}} DONE "Persistent infrastructure data has been cleaned."'
-
-  infra-reset:
-    desc: Fully reset infrastructure to a clean install.
-    cmds:
-      - task: infra-clean
-      - task: infra-init
-
-  infra-ps:
-    desc: List running infrastructure services.
-    cmds:
-      - '{{.DOCKER_COMPOSE}} ps'
-
-
+  ###############
   ## Environment
   ###############
 
   env-config-edit:
-    desc: "Open local env config files in editor."
+    desc: "Open local environment config files in editor."
     cmds:
-      - '{{.EXEC_LOG}} ACTION "Opening local env config in $EDITOR"'
-      - $EDITOR {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/*.env
-      - '{{.EXEC_LOG}} DONE "Local env config opened."'
+      - '{{.DSW_EXEC_LOG}} ACTION "Opening local env config in $EDITOR"'
+      - $EDITOR {{.DSW_ENV_PATH}}/*.env
+      - '{{.DSW_EXEC_LOG}} DONE "Local env config opened."'
 
+  # TODO : if configuration exists already, backup it before apply 
   env-config-prepare:
-    desc: "Initialize local environment configuration from default or local templates."
+    desc: "Initialize local environment configuration from template."
     cmds:
       - |
         read -p "Which template to copy? (default / local / other) [default]: " val
         TEMPLATE_ENV="${val:-default}"
-        TEMPLATE_PATH="{{.INFRA_BASE_PATH}}/configuration/${TEMPLATE_ENV}"
+        TEMPLATE_PATH="{{.DSW_INFRA_BASE_PATH}}/configuration/${TEMPLATE_ENV}"
 
         if [ ! -d "$TEMPLATE_PATH" ]; then
-          {{.EXEC_LOG}} ERROR "Template '$TEMPLATE_ENV' does not exist in 'configuration/'."
+          {{.DSW_EXEC_LOG}} ERROR "Template '$TEMPLATE_ENV' does not exist."
           exit 1
         fi
 
         if [ "$TEMPLATE_ENV" = "backup" ]; then
-          {{.EXEC_LOG}} ERROR "'backup' is a reserved keyword and cannot be used as a template."
+          {{.DSW_EXEC_LOG}} ERROR "'backup' is a reserved keyword."
           exit 1
         fi
 
-        {{.EXEC_LOG}} ACTION "Copying environment template from '$TEMPLATE_PATH' to '{{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/'"
-        mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/data
-        cp -r "$TEMPLATE_PATH"/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
+        {{.DSW_EXEC_LOG}} ACTION "Copying template from '$TEMPLATE_PATH' to '{{.DSW_ENV_PATH}}/'"
+        mkdir -p {{.DSW_ENV_PATH}}
+        cp -r "$TEMPLATE_PATH"/* {{.DSW_ENV_PATH}}/
 
-        {{.EXEC_LOG}} DONE "Environment configuration prepared from '$TEMPLATE_ENV' template."
+        {{.DSW_EXEC_LOG}} DONE "Environment configuration prepared."
 
   env-backup:
-    desc: "Backup the current environment state."
+    desc: "Backup current environment configuration."
     cmds:
-      - '{{.EXEC_LOG}} ACTION "Starting backup of environment {{.DEPLOY_ENV}}"'
+      - '{{.DSW_EXEC_LOG}} ACTION "Backing up env \"{{.DSW_DEPLOY_ENV}}\""'
       - |
-          SRC={{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
-          DEST={{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}
+          SRC={{.DSW_ENV_PATH}}
+          DEST={{.DSW_ENV_ROOT_PATH}}/backup/{{.DSW_DEPLOY_ENV}}
           if [ -d "$SRC" ]; then \
             if [ "$(ls -A $SRC)" ]; then \
               mkdir -p "$DEST" && \
               cp -r "$SRC"/* "$DEST" && \
-              {{.EXEC_LOG}} DONE "Backup completed at $DEST." ; \
+              {{.DSW_EXEC_LOG}} DONE "Backup complete at $DEST." ; \
             else \
-              {{.EXEC_LOG}} NOTICE "Environment folder is empty, no files to backup." ; \
+              {{.DSW_EXEC_LOG}} NOTICE "No files to backup." ; \
             fi \
           else \
-            {{.EXEC_LOG}} ERROR "No environment found to backup: $SRC" ; \
+            {{.DSW_EXEC_LOG}} ERROR "Source directory not found: $SRC" ; \
           fi
 
   env-restore:
     desc: "Restore environment from backup."
     cmds:
-      - |
-        {{.EXEC_LOG}} ACTION "Restoring environment '{{.DEPLOY_ENV}}' from backup..."
-        rm -rf {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
-        mkdir -p {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}
-        cp -r {{.ENV_ROOT_PATH}}/backup/{{.DEPLOY_ENV}}/* {{.ENV_ROOT_PATH}}/{{.DEPLOY_ENV}}/
-        {{.EXEC_LOG}} DONE "Environment restored from backup."
+      - '{{.DSW_EXEC_LOG}} ACTION "Restoring environment \"{{.DSW_DEPLOY_ENV}}\" from backup..."'
+      - rm -rf {{.DSW_ENV_PATH}}
+      - mkdir -p {{.DSW_ENV_PATH}}
+      - cp -r {{.DSW_ENV_ROOT_PATH}}/backup/{{.DSW_DEPLOY_ENV}}/* {{.DSW_ENV_PATH}}/
+      - '{{.DSW_EXEC_LOG}} DONE "Environment restored."'
 
   env-clean:
-    desc: "Delete current environment data and config, excluding backup, .gitignore, and project.*"
+    desc: "Clean environment folder (excluding backup, .gitignore, and project.*)."
     cmds:
-      # Step 1: Call the env-backup task to create a backup if necessary
       - task: env-backup
+      - '{{.DSW_EXEC_LOG}} ACTION "Cleaning environment folder."'
+      - "find {{.DSW_ENV_ROOT_PATH}} -mindepth 1 \\
+          ! -path '{{.DSW_ENV_ROOT_PATH}}/backup/*' \\
+          ! -name 'backup' \\
+          ! -name '.gitignore' \\
+          ! -name 'project.*' \\
+          -exec rm -rf {} +"
+      - '{{.DSW_EXEC_LOG}} DONE "Environment folder cleaned."'
 
-      # Step 2: Delete all files and directories except for backup, .gitignore, and project.*
-      - '{{.EXEC_LOG}} ACTION "Deleting environment folder {{.ENV_ROOT_PATH}} except for backup, .gitignore, and project.*"'
-      - "find {{.ENV_ROOT_PATH}} -mindepth 1 \
-          ! -path '{{.ENV_ROOT_PATH}}/backup/*' \
-          ! -name 'backup' \
-          ! -name '.gitignore' \
-          ! -name 'project.*' \
-          -exec rm -rf {} +"  # Remove contents except for backup, .gitignore, and project.*
+  #########################################################
+  ## Phase 0: Preparation (static, no containers required)
+  #########################################################
 
-      - '{{.EXEC_LOG}} DONE "Environment folder cleaned, excluding backup, .gitignore, and project.*."'
+  prep:
+    desc: "Prepare full host and project environment (no containers running)."
+    cmds:
+      - task: infra:prep
+      - task: app:prep
+      - '{{.DSW_EXEC_LOG}} DONE "All services prepared (env, volumes, folders)."'
+
+  purge:
+    desc: "Purge host and project (undo all preparation)."
+    cmds:
+      - task: app:purge
+      - task: infra:purge
+      - '{{.DSW_EXEC_LOG}} DONE "All preparation purged."'
+
+  rebase:
+    desc: "Reset full environment (purge + prep). Must be run when no containers are running."
+    status:
+      - test -z "$(docker ps -q)"
+    cmds:
+      - task: purge
+      - task: prep
+
+  #########################################
+  ## Phase 1: Runtime control (containers)
+  #########################################
+
+  up:
+    desc: "Start all containers (infra and app)."
+    status:
+      - docker ps --filter "name={{.DSW_PROJECT_NAME}}" --filter status=running | grep -qE "infra|app"
+    cmds:
+      - task: infra:up
+      - task: app:up
+      - '{{.DSW_EXEC_LOG}} DONE "All containers started."'
+
+  down:
+    desc: "Stop all containers."
+    cmds:
+      - task: app:down
+      - task: infra:down
+      - '{{.DSW_EXEC_LOG}} DONE "All containers stopped."'
+
+  restart:
+    desc: "Restart all containers (infra + app)."
+    cmds:
+      - task: down
+      - task: up
+
+  #########################################################
+  ## Phase 2: Initialization (requires running containers)
+  #########################################################
+
+  init:
+    desc: "Initialize services (DBs, indexes, builds, etc)."
+    cmds:
+      - task: infra:init
+      - task: app:init
+      - task: db-app-init
+      - '{{.DSW_EXEC_LOG}} DONE "Infra and app fully initialized."'
+
+  clean:
+    desc: "Clean all services (infra and app)."
+    cmds:
+      - task: db-app-clean
+      - task: app:clean
+      - task: infra:clean
+      - '{{.DSW_EXEC_LOG}} DONE "All services cleaned."'
+
+  reset:
+    desc: "Reset application state (clean then init)."
+    cmds:
+      - task: clean
+      - task: init
 
 
+  ###############################################
+  # Cross-cutting tasks (infra + app coordination)
+  ###############################################
+
+  test:
+    cmds:
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec -T dust_db sh -c 'echo "POSTGRES_USER=$POSTGRES_USER"'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec -T dust_db psql -U dev -d postgres -c '\du'
+
+  db-app-init:
+    desc: "Provision databases + build backend init logic + init front DBs"
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Creating test user in Postgres..."'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec -T dust_db sh -c '
+          USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
+          if [ "$USER_EXISTS" != "1" ]; then
+            echo "Creating user '\''test'\''...";
+            psql -U "$POSTGRES_USER" -d postgres -c "CREATE USER test WITH PASSWORD '\''test'\'' CREATEDB;";
+          else
+            echo "User '\''test'\'' already exists.";
+          fi
+        '
+
+      - '{{.DSW_EXEC_LOG}} ACTION "Creating application databases if needed..."'
+      - for: { var: DUST_DATABASES }
+        cmd: |
+          {{.DSW_DOCKER_COMPOSE}} exec -T dust_db sh -c '
+            DB_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''{{.ITEM}}'\''");
+            if [ "$DB_EXISTS" != "1" ]; then
+              echo "Creating database {{.ITEM}}...";
+              psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE \"{{.ITEM}}\" OWNER test;";
+            else
+              echo "Database {{.ITEM}} already exists.";
+            fi
+          '
+
+      - '{{.DSW_EXEC_LOG}} ACTION "Building backend init binary..."'
+      - '{{.DSW_DOCKER_COMPOSE}} exec dust_backend cargo build --bin init_db'
+
+      - '{{.DSW_EXEC_LOG}} ACTION "Initializing front dev database..."'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec dust_front zsh -c "cd front && npx tsx admin/db.ts"
+      - '{{.DSW_EXEC_LOG}} DONE "Front dev database initialized."'
+
+      - '{{.DSW_EXEC_LOG}} ACTION "Initializing front test database..."'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec \
+          -e NODE_ENV=test -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/dust_front_test \
+          dust_front zsh -c "cd front && npx tsx admin/db.ts"
+      - '{{.DSW_EXEC_LOG}} DONE "Front test database initialized."'
+
+      - '{{.DSW_EXEC_LOG}} DONE "App databases ready."'
+
+
+  db-app-clean:
+    desc: "Drop PostgreSQL databases and user test."
+    cmds:
+      - for: 
+          var: DUST_DATABASES
+        cmd: |
+          {{.DSW_EXEC_LOG}} ACTION "Dropping database {{.ITEM}} if exists"
+          {{.DSW_DOCKER_COMPOSE}} exec -T dust_db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS {{.ITEM}};"'
+      - '{{.DSW_EXEC_LOG}} ACTION "Dropping user \"test\" if exists"'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec -T dust_db sh -c '
+          USER_EXISTS=$(psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''test'\''");
+          if [ "$USER_EXISTS" = "1" ]; then
+            psql -U "$POSTGRES_USER" -d postgres -c "DROP ROLE test;";
+            echo "User '\''test'\'' dropped.";
+          else
+            echo "User '\''test'\'' does not exist.";
+          fi
+        '
+      - '{{.DSW_EXEC_LOG}} DONE "Databases and user \"test\" cleaned."'
+
+  db-app-reset:
+    desc: "Reinitialize all app databases"
+    cmds:
+      - task: db-app-clean
+      - task: db-app-init
+
+
+  ########
   ## Host
   ########
 
   host-clean:
     desc: "WARNING: Clean host (containers, volumes, networks)."
     cmds:
+      - cmd: task clean
+        ignore_error: true
       - docker ps -aq | xargs -r docker stop
       - docker ps -aq | xargs -r docker rm -v
       - docker volume ls -q | xargs -r docker volume rm
       - docker network ls -q --filter type=custom | xargs -r docker network rm
-      - '{{.EXEC_LOG}} DONE "Host cleaned (containers, volumes, networks)."'
+      - '{{.DSW_EXEC_LOG}} DONE "Host cleaned (containers, volumes, networks)."'
     silent: false
 
-  host-reset:
-    desc: "WARNING: Reset host (containers, images, builders, system)."
+  host-purge:
+    desc: "WARNING: Full system purge (containers, images, cache, volumes)."
+    summary: |
+      Optionally accepts a 'purgeEnv=true' variable.
+      If 'purgeEnv' is set to true, also runs `task env-clean` (which removes env configuration).
+    vars:
+      purgeEnv: false
     cmds:
       - task: host-clean
+      - cmd: task purge
+        ignore_error: true
+      - |
+        if {{ .purgeEnv }}; then
+          {{ .EXEC_LOG }} ACTION "Running env-clean due to purgeEnv=true"
+          task env-clean
+        fi
       - docker images -aq | xargs -r docker rmi -f
       - docker builder prune -f
       - docker system prune -a -f
-      - '{{.EXEC_LOG}} DONE "Host reset complete."'
+      - '{{.DSW_EXEC_LOG}} DONE "Host reset complete."'
     silent: false
 
   host-init:
-    desc: "Initialize host setup (submodules, configs)."
+    desc: "Initialize Git submodules and prepare environment configurations."
+    status:
+      # Skip this task if the Dust submodule has already been initialized
+      # (i.e., the .git metadata exists and the folder is not empty)
+      - test -f src/dust/.git || [ -d src/dust/.git ] && [ "$(ls -A src/dust)" ]
     cmds:
       - git submodule update --init --recursive
-      - '{{.EXEC_LOG}} DONE "Git submodules initialized."'
+      - '{{.DSW_EXEC_LOG}} DONE "Git submodules initialized."'
+      - task: env-config-prepare
 
+  ##################
+  ## Full Bootstrap
+  ##################
 
+  bootstrap:
+    desc: "Run full bootstrap (prep + up + init)."
+    cmds:
+      - task: host-init
+      - task: prep
+      - task: up
+      - task: init
+
+  ##############
   ## Diagnostic
   ##############
 
-  log-host.env:
-    desc: Log host environment.
-    summary: |
-      WARNING: May print sensitive variables. Use in development only.
+  status-all:
+    desc: "Display status of all key phases (prep, up, init)."
     cmds:
-      - printenv | sort
+      - echo -e "\nChecking prep:"
+      - if test -d {{.DSW_ENV_PATH}} && test -d {{.DSW_ENV_PATH}}/data; then echo -e "\t✅ prep ready"; else echo -e "\t❌ prep not ready"; fi
+      - echo -e "\nChecking up (containers running):"
+      - if docker ps --filter "name={{.DSW_PROJECT_NAME}}" --filter status=running | grep -qE "infra|app"; then echo -e "\t✅ containers running"; else echo -e "\t❌ containers not running"; fi
+      - echo -e "\nChecking init (at least one container):"
+      - if test -n "$(docker ps -q)"; then echo -e "\t✅ containers present"; else echo -e "\t❌ no containers"; fi
 
-  log-host.system:
-    desc: Log system diagnostics.
+  log-env:
+    desc: "Print environment variables (development only)."
+    summary: "WARNING: May print sensitive variables."
+    cmds:
+      - printenv | grep DSW_* | sort
+
+  log-system:
+    desc: "Display system diagnostics."
     cmds:
       - docker info
       - df -h
       - docker system df
-
-  log-infra:
-    desc: Show infrastructure logs.
-    cmds:
-      - '{{.DOCKER_COMPOSE}} logs -f --tail=100'

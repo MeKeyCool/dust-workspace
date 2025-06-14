@@ -1,0 +1,24 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: ${DSW_KUBE_CLUSTER_NAME}
+
+servers: 1
+agents: 1
+
+network: ${DSW_DOCKER_NETWORK}
+
+ports:
+  - port: "6445:6443"
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3s:
+    extraArgs:
+      - arg: "--disable=traefik"  # Disable Traefik to use another ingress controller
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

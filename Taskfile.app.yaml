@@ -1,0 +1,276 @@
+version: '3'
+
+silent: true
+
+tasks:
+
+  ##################
+  ## App Lifecycle
+  ##################
+
+  prep:
+    desc: "Prepare Dust app folders (volumes, caches...)."
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Creating backend data folder..."'
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/backend-home"
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app preparation complete."'
+
+  purge:
+    desc: "Purge all prepared Dust app folders."
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Purging Dust app folders..."'
+      - rm -rf "{{.DSW_ENV_PATH}}/data/backend-home"
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app purge complete."'
+
+  up:
+    desc: "Start Dust application services."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} up -d --remove-orphans --build'
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app services started."'
+
+  down:
+    desc: "Stop Dust application services."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} stop'
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app services stopped."'
+
+  restart:
+    desc: "Restart Dust application services."
+    cmds:
+      - task: down
+      - task: up
+
+  init:
+    desc: "Initialize Dust application (backend, front, SDKs...)."
+    cmds:
+      - task: init-backend
+      - task: init-sdk-js
+      - task: init-sparkle
+      - task: init-front
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app fully initialized."'
+
+  clean:
+    desc: "Clean all Dust app data and build artifacts."
+    cmds:
+      - task: clean-backend
+      - task: clean-sdk-js
+      - task: clean-sparkle
+      - task: clean-front
+      - '{{.DSW_EXEC_LOG}} DONE "Dust app fully cleaned."'
+
+  reset:
+    desc: "Reset Dust application (clean + init)."
+    cmds:
+      - task: clean
+      - task: init
+
+  ##################
+  ## Initialization
+  ##################
+
+  init-backend:
+    desc: "Build and initialize Rust backend and database."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+      - '{{.DSW_EXEC_LOG}} ACTION "Running backend DB initialization..."'
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin init_db'
+      - '{{.DSW_EXEC_LOG}} DONE "Rust backend built and DB initialized."'
+
+  init-sdk-js:
+    desc: "Install JS SDK dependencies."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sdks/js && npm install"'
+      - '{{.DSW_EXEC_LOG}} DONE "JS SDK dependencies installed."'
+
+  init-sparkle:
+    desc: "Install Sparkle design system dependencies."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sparkle && npm install"'
+      - '{{.DSW_EXEC_LOG}} DONE "Sparkle dependencies installed."'
+
+  init-front:
+    desc: "Install frontend dependencies."
+    deps: [init-sdk-js]
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm install --ignore-scripts"'
+      - '{{.DSW_EXEC_LOG}} DONE "Frontend dependencies installed."'
+
+  ##################
+  ## Cleaning
+  ##################
+
+  clean-paths:
+    internal: true
+    desc: "Delete a list of local paths if they exist."
+    vars:
+      paths: []
+    cmds:
+      - for: { var: paths }
+        cmd: '[ -d {{.ITEM}} ] && rm -rf {{.ITEM}} || true'
+
+  clean-backend:
+    desc: "Clean Rust backend artifacts."
+    cmds:
+      - task: clean-paths
+        vars:
+          paths:
+            - '{{.DSW_SRC_BASE_PATH}}/dust/core/target'
+      - '{{.DSW_EXEC_LOG}} DONE "Rust backend cleaned."'
+
+  clean-sdk-js:
+    desc: "Clean JS SDK artifacts."
+    cmds:
+      - task: clean-paths
+        vars:
+          paths:
+            - '{{.DSW_SRC_BASE_PATH}}/dust/sdks/js/node_modules'
+            - '{{.DSW_SRC_BASE_PATH}}/dust/sdks/js/dist'
+      - '{{.DSW_EXEC_LOG}} DONE "JS SDK cleaned."'
+
+  clean-sparkle:
+    desc: "Clean Sparkle design system artifacts."
+    cmds:
+      - task: clean-paths
+        vars:
+          paths:
+            - '{{.DSW_SRC_BASE_PATH}}/dust/sparkle/node_modules'
+            - '{{.DSW_SRC_BASE_PATH}}/dust/sparkle/dist'
+            - '{{.DSW_SRC_BASE_PATH}}/dust/sparkle/.storybook-out'
+      - '{{.DSW_EXEC_LOG}} DONE "Sparkle cleaned."'
+
+  clean-front:
+    desc: "Clean frontend artifacts."
+    cmds:
+      - task: clean-paths
+        vars:
+          paths:
+            - '{{.DSW_SRC_BASE_PATH}}/dust/front/.next'
+            - '{{.DSW_SRC_BASE_PATH}}/dust/front/node_modules'
+      - '{{.DSW_EXEC_LOG}} DONE "Frontend cleaned."'
+
+
+  ## BUILD
+  ##########
+
+  build:
+    desc: Build backend, SDK, Sparkle and frontend.
+    deps:
+      - build-backend
+      - build-sdk-js
+      - build-sparkle
+      - build-front
+
+  build-backend:
+    desc: Build Rust backend.
+    deps:
+      - init-backend
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_backend cargo build'
+      - '{{.DSW_EXEC_LOG}} DONE "Backend built."'
+
+  build-sdk-js:
+    desc: Build JS SDK.
+    deps:
+      - init-sdk-js
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sdks/js && npm run build"'
+      - '{{.DSW_EXEC_LOG}} DONE "SDK JS built."'
+
+  build-sparkle:
+    desc: Build Sparkle (Design System).
+    deps:
+      - init-sparkle
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd sparkle && npm run build"'
+      - '{{.DSW_EXEC_LOG}} DONE "Sparkle built."'
+
+  build-front:
+    desc: Build frontend Next.js.
+    deps:
+      - init-front
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run build"'
+      - '{{.DSW_EXEC_LOG}} DONE "Frontend built."'
+
+  ## RUN
+  ########
+
+  run-backend:
+    desc: Run backend API.
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_backend cargo run --bin core-api'
+
+  run-front:
+    desc: Run frontend (dev mode).
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run dev"'
+
+  start-front:
+    desc: Serve built frontend.
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh -c "cd front && npm run start"'
+
+
+  ## TEST
+  ########
+
+  test:
+    desc: Run backend and frontend tests.
+    deps:
+      - test-backend
+      - test-front
+
+  test-backend:
+    desc: Run Rust unit tests with test DB.
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Running migrations..."'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec \
+          -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e OAUTH_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e DATABASES_STORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -it dust_backend cargo run --bin init_db
+      - '{{.DSW_EXEC_LOG}} ACTION "Running tests..."'
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec \
+          -e CORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e CORE_DATABASE_READ_REPLICA_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e OAUTH_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -e DATABASES_STORE_DATABASE_URI=postgres://dev:dev@dust-db:5432/dust_test \
+          -it dust_backend cargo test
+      - '{{.DSW_EXEC_LOG}} DONE "Backend tests executed."'
+
+  # TODO : this test fails at first cal after db-app-reset and then works well
+  test-front:
+    desc: Run frontend tests (no watch).
+    deps:
+      - build-sdk-js
+    cmds:
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec \
+          -e NODE_ENV=test -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/dust_front_test \
+          dust_front zsh -c "cd front && npm run test -- --watch=false"
+      - '{{.DSW_EXEC_LOG}} DONE "Frontend tests completed."'
+
+  test-front-watch:
+    desc: Run frontend tests (watch mode).
+    deps:
+      - build-sdk-js
+    cmds:
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec \
+          -e NODE_ENV=test -e FRONT_DATABASE_URI=postgres://test:test@dust_db:5432/dust_front_test \
+          dust_front zsh -c "cd front && npm run test"
+
+  ## SHELL
+  #########
+
+  shell-backend:
+    desc: Open shell in backend container.
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_backend bash'
+
+  shell-front:
+    desc: Open shell in frontend container.
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_front zsh'

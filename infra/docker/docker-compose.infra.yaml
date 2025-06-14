@@ -1,0 +1,107 @@
+
+networks:
+  default:
+    name: ${DSW_DOCKER_NETWORK}
+    driver: bridge
+
+volumes:
+
+  dust_pgsql_data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/pgsql
+
+  dust_redis_data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/redis
+
+  dust_elasticsearch_data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/elasticsearch
+
+  dust_qdrant_data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/qdrant
+
+services:
+
+  dust_db:
+    image: postgres:14.1-alpine
+    container_name: dust-db
+    hostname: dust-db
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      - dust_pgsql_data:/var/lib/postgresql/data
+    env_file:
+      - ${DSW_ENV_PATH}/dust.db.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  dust_redis:
+    image: redis:7
+    container_name: dust-redis
+    hostname: dust-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - dust_redis_data:/data
+
+  dust_elasticsearch:
+    build:
+      context: ${DSW_INFRA_DOCKER_PATH}/elasticsearch
+    container_name: dust-elasticsearch
+    hostname: dust-elasticsearch
+    env_file:
+      - ${DSW_ENV_PATH}/dust.elasticsearch.env
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - action.auto_create_index=false
+      - xpack.license.self_generated.type=basic
+      - xpack.ml.use_auto_machine_memory_percent=true
+      - ELASTIC_PASSWORD
+    ports:
+      - "9200:9200"
+    volumes:
+      - dust_elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "sh -c 'curl -u elastic:$${ELASTIC_PASSWORD} -s http://localhost:9200/_cluster/health | grep -q \"\\\"status\\\":\\\"green\\\"\"'"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  dust_qdrant:
+    image: qdrant/qdrant:v1.7.3
+    container_name: dust-qdrant
+    hostname: dust-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - dust_qdrant_data:/qdrant/storage
+    env_file:
+      - ${DSW_ENV_PATH}/dust.qdrant.env

@@ -1,0 +1,55 @@
+
+services:
+
+  dust_front:
+    container_name: dust-front
+    hostname: dust-front
+    build:
+      context: ${DSW_INFRA_DOCKER_PATH}/typescript
+    env_file:
+      - ${DSW_ENV_PATH}/dust.front.env
+      - ${DSW_ENV_PATH}/dust.redis.env
+    working_dir: /src/dust
+    volumes:
+      - ${DSW_SRC_BASE_PATH}/dust:/src/dust
+    ports:
+      - "3000:3000"
+    depends_on:
+      dust_backend:
+        condition: service_started
+    command: ["tail", "-f", "/dev/null"]
+
+  dust_backend:
+    container_name: dust-backend
+    hostname: dust-backend
+    build:
+      context: ${DSW_INFRA_DOCKER_PATH}/rust
+      args:
+        HOST_UID: ${DSW_HOST_UID}
+        HOST_GID: ${DSW_HOST_GID}
+        HOST_USR: ${DSW_HOST_USR}
+    env_file:
+      - ${DSW_ENV_PATH}/dust.backend.env
+    working_dir: /app
+    volumes:
+      - ${DSW_SRC_BASE_PATH}/dust/core:/app
+      - dust_backend_home:/home/${DSW_HOST_USR}/.cargo
+    ports:
+      - "3001:3001"
+    depends_on:
+      dust_db:
+        condition: service_healthy
+      dust_redis:
+        condition: service_started
+      dust_elasticsearch:
+        condition: service_healthy
+    command: ["tail", "-f", "/dev/null"]
+
+volumes:
+
+  dust_backend_home:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/backend-home

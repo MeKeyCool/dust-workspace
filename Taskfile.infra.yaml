@@ -1,0 +1,209 @@
+version: '3'
+
+
+tasks:
+
+  ##################
+  ## Infra Lifecycle
+  ##################
+
+  prep:
+    desc: "Prepare folders for infra services (Postgres, Redis, etc.)."
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Preparing infra data folders..."'
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/pgsql"
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/redis"
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/elasticsearch"
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/qdrant"
+      - mkdir -p "{{.DSW_ENV_PATH}}/data/kube"
+      - '{{.DSW_EXEC_LOG}} DONE "Infra folders prepared."'
+
+  purge:
+    desc: "Purge all data folders related to infra services."
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Purging infra data folders..."'
+      - sudo rm -rf "{{.DSW_ENV_PATH}}/data/pgsql"
+      - sudo rm -rf "{{.DSW_ENV_PATH}}/data/redis"
+      - rm -rf "{{.DSW_ENV_PATH}}/data/elasticsearch"
+      - rm -rf "{{.DSW_ENV_PATH}}/data/qdrant"
+      - rm -rf "{{.DSW_ENV_PATH}}/data/kube"
+      - '{{.DSW_EXEC_LOG}} DONE "Infra folders purged."'
+
+  up:
+    desc: "Start infrastructure containers."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} up -d --remove-orphans --build'
+      - '{{.DSW_EXEC_LOG}} DONE "Infrastructure is up and running."'
+
+  down:
+    desc: "Stop infrastructure containers."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} stop'
+      - '{{.DSW_EXEC_LOG}} DONE "Infrastructure has been stopped."'
+
+  restart:
+    desc: "Restart infrastructure containers."
+    cmds:
+      - task: down
+      - task: up
+
+  init:
+    desc: "Initialize infra services: Qdrant, Elasticsearch."
+    cmds:
+      - task: init-qdrant
+        ignore_error: true
+      - task: init-elasticsearch
+        ignore_error: true
+      - task: up
+      - '{{.DSW_EXEC_LOG}} DONE "Infrastructure initialized."'
+
+  clean:
+    desc: "Clean infra services: databases and caches."
+    cmds:
+      - task: clean-caches
+      - '{{.DSW_EXEC_LOG}} DONE "Infra services cleaned."'
+
+  reset:
+    desc: "Reset infra state (clean + init)."
+    cmds:
+      - task: clean
+      - task: init
+
+  ps:
+    desc: "Show running infra containers."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} ps'
+
+
+  ####################
+  ## Init subtasks
+  ####################
+
+  init-qdrant:
+    desc: "Initialize Qdrant collections."
+    cmds:
+      - |
+        {{.DSW_DOCKER_COMPOSE}} exec -T dust_backend script -q -c \
+          "echo y | cargo run --bin qdrant_create_collection -- --cluster cluster-0 --provider openai --model text-embedding-3-large-1536" /dev/null
+      - '{{.DSW_EXEC_LOG}} DONE "Qdrant collections initialized."'
+
+  init-elasticsearch:
+    desc: "Initialize Elasticsearch indices."
+    vars:
+      INDICES:
+        - name: data_sources_nodes
+          version: 4
+        - name: data_sources
+          version: 1
+    cmds:
+      - for: { var: INDICES }
+        cmd: |
+          {{.DSW_DOCKER_COMPOSE}} exec -T dust_backend sh -c '
+            INDEX_NAME="{{.ITEM.name}}"
+            INDEX_VERSION={{.ITEM.version}}
+            FULL_INDEX="core.${INDEX_NAME}_${INDEX_VERSION}"
+            status=$(curl -s -o /dev/null -w "%{http_code}" -I "http://dust-elasticsearch:9200/${FULL_INDEX}")
+            if [ "$status" = "200" ]; then
+              echo "Index ${FULL_INDEX} already exists.";
+            else
+              echo "Creating index ${FULL_INDEX}...";
+              cargo run --bin elasticsearch_create_index -- --index-name "$INDEX_NAME" --index-version "$INDEX_VERSION" --skip-confirmation;
+              echo "Index ${FULL_INDEX} created.";
+            fi
+          '
+      - '{{.DSW_EXEC_LOG}} DONE "Elasticsearch indices initialized."'
+
+
+  ####################
+  ## Clean subtasks
+  ####################
+
+  clean-caches:
+    desc: "Remove global cache directories."
+    cmds:
+      - 'find {{.DSW_SRC_BASE_PATH}}/dust -type d -name ".turbo" -exec rm -rf {} + || true'
+      - 'find {{.DSW_SRC_BASE_PATH}}/dust -type d -name ".cache" -exec rm -rf {} + || true'
+      - 'find {{.DSW_SRC_BASE_PATH}}/dust -type d -name "coverage" -exec rm -rf {} + || true'
+      - '{{.DSW_EXEC_LOG}} DONE "Global caches removed."'
+
+
+  ##############
+  ## Kubernetes
+  ##############
+  # UNDER WORK : TOBE REFINED
+
+  # TODO : find a best way to manage kube config. 
+  kube-prep:
+    desc: "Create k3d Kubernetes cluster"
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Creating k3d cluster {{.DSW_KUBE_CLUSTER_NAME}}..."'
+      - |
+        envsubst < {{.DSW_INFRA_KUBE_PATH}}/k3d.config.yaml | \
+        k3d cluster create --config -
+      - '{{.DSW_EXEC_LOG}} INFO "Cluster created. Syncing kubeconfig for dust_kube_cli..."'
+      - mkdir -p {{.DSW_ENV_PATH}}/data/kube
+      - k3d kubeconfig get {{.DSW_KUBE_CLUSTER_NAME}} > {{.DSW_ENV_PATH}}/data/kube/config
+      - '{{.DSW_EXEC_LOG}} INFO "Replacing 0.0.0.0 by host.docker.internal in kubeconfig..."'
+      - "sed -i 's|0.0.0.0|host.docker.internal|g' {{.DSW_ENV_PATH}}/data/kube/config"
+      - '{{.DSW_EXEC_LOG}} INFO "Adding insecure-skip-tls-verify to kubeconfig..."'
+      - "sed -i '/^ *server:/a\\    insecure-skip-tls-verify: true' {{.DSW_ENV_PATH}}/data/kube/config"
+      - '{{.DSW_EXEC_LOG}} INFO "Removing certificate-authority-data from kubeconfig..."'
+      - "sed -i '/certificate-authority-data/d' {{.DSW_ENV_PATH}}/data/kube/config"
+      - '{{.DSW_EXEC_LOG}} DONE "k3d cluster {{.DSW_KUBE_CLUSTER_NAME}} ready and kubeconfig synced."'
+
+  kube-purge:
+    desc: "Delete local Kubernetes cluster (k3d) and remove generated kubeconfig"
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Deleting k3d cluster {{.DSW_KUBE_CLUSTER_NAME}}..."'
+      - k3d cluster delete {{.DSW_KUBE_CLUSTER_NAME}} || echo "Cluster not found, skipping."
+      - '{{.DSW_EXEC_LOG}} INFO "Removing generated kubeconfig..."'
+      - rm -f {{.DSW_ENV_PATH}}/data/kube/config || echo "Kubeconfig not found, skipping."
+      - rmdir --ignore-fail-on-non-empty {{.DSW_ENV_PATH}}/data/kube || echo "Directory not empty or missing, skipping."
+      - '{{.DSW_EXEC_LOG}} DONE "k3d cluster {{.DSW_KUBE_CLUSTER_NAME}} deleted and kubeconfig cleaned."'
+
+  kube-rebase:
+    desc: "Reset Kubernetes cluster (purge + prep)"
+    cmds:
+      - task: kube-purge
+      - task: kube-prep
+
+  kube-log:
+    desc: "Show current Kubernetes context and cluster info"
+    cmds:
+      - '{{.DSW_EXEC_LOG}} ACTION "Current Kubernetes context:"'
+      - '{{.DSW_EXEC_K8S}} kubectl config current-context || echo "No kube context found"'
+      - '{{.DSW_EXEC_K8S}} kubectl cluster-info || echo "No cluster info available"'
+      - '{{.DSW_EXEC_LOG}} INFO "Testing connection to Kubernetes nodes..."'
+      - '{{.DSW_EXEC_K8S}} kubectl get nodes || echo "Unable to reach nodes"'
+      - '{{.DSW_EXEC_LOG}} DONE "Cluster status check complete."'
+
+  kube-cli-shell:
+    desc: "Open a bash shell in the Kubernetes CLI container"
+    cmd: '{{.DSW_DOCKER_COMPOSE}} run --rm -it dust_kube_cli bash'
+
+
+
+
+  ##################
+  ## Shell Access
+  ##################
+
+  shell-database:
+    desc: "Open shell in PostgreSQL container."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_db bash'
+
+  shell-elasticsearch:
+    desc: "Open shell in Elasticsearch container."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} exec -it dust_elasticsearch bash'
+
+
+  ##################
+  ## Diagnostic
+  ##################
+
+  log:
+    desc: "Show real-time logs for infra containers."
+    cmds:
+      - '{{.DSW_DOCKER_COMPOSE}} logs -f --tail=100'

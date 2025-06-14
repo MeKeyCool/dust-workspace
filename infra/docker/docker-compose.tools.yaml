@@ -1,0 +1,42 @@
+
+volumes:
+
+  dust_kube_config:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_ENV_PATH}/data/kube
+
+  dust_kube:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${DSW_INFRA_KUBE_PATH}
+
+services:
+
+  dust_utils:
+    container_name: dust-utils
+    build:
+      context: ${DSW_INFRA_DOCKER_PATH}/utils
+    working_dir: /workspace/scripts
+    volumes:
+      - ${DSW_INFRA_DOCKER_PATH}/utils/scripts:/workspace/scripts:ro
+
+  dust_kube_cli:
+    container_name: dust-kube-cli
+    build:
+      context: ${DSW_INFRA_DOCKER_PATH}/kube_cli
+    working_dir: /kube
+    volumes:
+      - dust_kube_config:/root/.kube:ro
+      - dust_kube:/kube
+    environment:
+      - KUBECONFIG=/root/.kube/config
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "host.docker.internal:${DSW_DOCKER_GATEWAY_IP}"
+
